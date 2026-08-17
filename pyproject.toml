@@ -1,0 +1,37 @@
+[project]
+name = "a2a-bridge"
+version = "0.1.0"
+description = "Connect LibreChat, or any OpenAI-compatible chat client, to any A2A agent."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Scott Klein" }]
+keywords = ["a2a", "agent2agent", "librechat", "chat-completions", "agent", "jsonrpc"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Communications :: Chat",
+]
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "httpx>=0.27",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+mongo = ["pymongo>=4.8"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "respx>=0.21", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/kleinmatic/a2a-bridge"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100

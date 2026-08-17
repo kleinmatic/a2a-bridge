@@ -1,0 +1,42 @@
+# a2a-bridge configuration. One block per A2A agent; each `id` becomes a model
+# name your chat client can select. Adding an agent needs no code change.
+
+store: "sqlite:///data/context.db"   # memory:// | sqlite:///path | mongodb://...
+api_keys_env: A2A_BRIDGE_API_KEYS    # comma-separated; omit to leave the bridge open
+
+agents:
+  # Minimal: everything else is discovered from the agent card.
+  - id: example
+    card_url: https://example.org/agents/helper/
+
+  # A fuller example, showing every knob.
+  - id: publisher
+    card_url: https://example.org/api/publisher/
+
+    # Some servers redirect /path -> /path/ with a 307, and most HTTP clients
+    # will not replay a POST body across a redirect. If the bridge logs a
+    # redirect error, set the exact form here, trailing slash included.
+    endpoint_url: https://example.org/api/publisher/
+
+    # Header carrying your chat client's conversation id. The bridge maps it to
+    # the agent's contextId so sessions survive across turns. In LibreChat:
+    #   headers:
+    #     X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
+    conversation_id_header: X-Conversation-Id
+
+    # Forward a stable per-user id so the agent can rate-limit per user instead
+    # of per IP — without this, every user of a server-side bridge looks like one
+    # caller. The HMAC makes the id unforgeable; the secret is env-only and must
+    # never reach a browser. In LibreChat the id comes from
+    # "{{LIBRECHAT_USER_ID}}".
+    caller:
+      id_header: X-Caller-Id
+      auth_header: X-Caller-Auth
+      secret_env: EXAMPLE_SHARED_SECRET
+
+    static_headers:
+      X-Trace-Source: a2a-bridge
+
+    artifact_join: "\n\n"   # how multiple text artifacts are concatenated
+    on_error: message       # "message" renders failures in-chat; "http_error" propagates
+    timeout_s: 120

@@ -1,0 +1,194 @@
+"""OpenAI-compatible HTTP surface in front of one or more A2A agents."""
+
+from __future__ import annotations
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from .a2a import A2AClient, PayloadTooLarge, RateLimited
+from .config import BridgeConfig
+from .mapping import A2AProtocolError, chat_completion, last_user_text, sse_chunks
+from .store import build_store
+
+log = logging.getLogger("a2a_bridge")
+
+STATE: dict[str, Any] = {}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cfg: BridgeConfig = STATE.get("config") or BridgeConfig.load()
+    STATE["config"] = cfg
+    STATE["store"] = build_store(cfg.store_url)
+    STATE["clients"] = {aid: A2AClient(agent) for aid, agent in cfg.agents.items()}
+
+    # Fetch cards at startup for a fast failure and a legible log line, but do
+    # not die on it: an agent that is briefly unreachable should not stop the
+    # bridge from serving the others, and a conference network is not a reason
+    # to be in a crash loop.
+    for aid, client in STATE["clients"].items():
+        try:
+            await client.card()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("agent %s: card unavailable at startup (%s); will retry on demand", aid, exc)
+
+    try:
+        yield
+    finally:
+        for client in STATE["clients"].values():
+            await client.close()
+        STATE["store"].close()
+
+
+app = FastAPI(title="a2a-bridge", version="0.1.0", lifespan=lifespan)
+
+
+def require_api_key(authorization: str | None = Header(default=None)) -> None:
+    keys = STATE["config"].api_keys
+    if not keys:
+        return
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if token not in keys:
+        raise HTTPException(status_code=401, detail="invalid api key")
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, Any]:
+    return {"status": "ok", "agents": sorted(STATE["config"].agents)}
+
+
+@app.get("/v1/models")
+async def models(_: None = Depends(require_api_key)) -> dict[str, Any]:
+    """Each configured agent presents as a model, so clients self-populate."""
+    return {
+        "object": "list",
+        "data": [
+            {"id": aid, "object": "model", "owned_by": "a2a-bridge"}
+            for aid in sorted(STATE["config"].agents)
+        ],
+    }
+
+
+def _conversation_id(agent, request: Request, body: dict[str, Any]) -> str:
+    """Find a stable key for this conversation.
+
+    Preference order matters. A client-supplied conversation id is the only
+    option that survives the user editing an earlier message; deriving a key from
+    message content does not, and since contextId carries entitlement state, a
+    rotated key silently sends someone back through the gate. Falling back to a
+    hash is better than failing, but it is a fallback.
+    """
+    if agent.conversation_id_header:
+        value = request.headers.get(agent.conversation_id_header)
+        if value:
+            return value
+
+    for field in ("conversation_id", "user"):
+        if body.get(field):
+            return str(body[field])
+
+    import hashlib
+
+    seed = last_user_text(body.get("messages") or [])
+    log.warning(
+        "agent %s: no conversation id available; falling back to a content hash. "
+        "Editing the first message will start a new session.", agent.id,
+    )
+    return "sha256:" + hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request, _: None = Depends(require_api_key)):
+    cfg: BridgeConfig = STATE["config"]
+    body = await request.json()
+
+    model = body.get("model")
+    agent_cfg = cfg.agents.get(model)
+    if agent_cfg is None:
+        raise HTTPException(status_code=404, detail=f"unknown model {model!r}")
+
+    client: A2AClient = STATE["clients"][model]
+    store = STATE["store"]
+
+    try:
+        text = last_user_text(body.get("messages") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    conversation_id = _conversation_id(agent_cfg, request, body)
+    caller_id = request.headers.get(agent_cfg.caller.id_header) if agent_cfg.caller.id_header else None
+    context_id = store.get(model, conversation_id)
+
+    try:
+        reply, new_context_id, state = await client.send(
+            text, context_id=context_id, caller_id=caller_id
+        )
+    except RateLimited as exc:
+        # Surfaced, never retried away: a throttled request is information the
+        # operator wants, and a silent retry loop turns one visible failure into
+        # an invisible one plus more load.
+        detail = "The agent is rate limiting requests."
+        if exc.retry_after:
+            detail += f" Try again in about {exc.retry_after:.0f}s."
+        return _error_response(agent_cfg, model, detail, status=429)
+    except PayloadTooLarge:
+        return _error_response(agent_cfg, model, "That message was too large for the agent.", status=413)
+    except A2AProtocolError as exc:
+        log.error("agent %s: protocol error: %s", model, exc)
+        return _error_response(agent_cfg, model, f"The agent could not answer ({exc}).", status=502)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("agent %s: call failed", model)
+        return _error_response(agent_cfg, model, f"The agent is unreachable ({exc}).", status=502)
+
+    # Remember whatever the server minted. It owns the value; we only echo it.
+    if new_context_id and new_context_id != context_id:
+        store.put(model, conversation_id, new_context_id)
+
+    log.info(
+        "agent=%s conversation=%s context=%s state=%s chars=%d",
+        model, conversation_id, new_context_id, state, len(reply),
+    )
+
+    if body.get("stream"):
+        return StreamingResponse(
+            iter(sse_chunks(reply, model=model)),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    return JSONResponse(chat_completion(reply, model=model))
+
+
+def _error_response(agent_cfg, model: str, detail: str, *, status: int):
+    """Render a failure the way this agent is configured to.
+
+    Default is an in-chat assistant message rather than an HTTP error: a chat UI
+    turns a non-2xx into a red banner with no context, which is a poor way to
+    learn that an agent is throttling you. `on_error: http_error` is there for
+    programmatic callers that would rather have the status.
+    """
+    if agent_cfg.on_error == "http_error":
+        return JSONResponse({"error": {"message": detail, "type": "upstream_error"}}, status_code=status)
+    return JSONResponse(chat_completion(detail, model=model))
+
+
+def main() -> None:  # pragma: no cover
+    import uvicorn
+
+    logging.basicConfig(
+        level=os.environ.get("A2A_BRIDGE_LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    uvicorn.run(
+        app,
+        host=os.environ.get("A2A_BRIDGE_HOST", "0.0.0.0"),
+        port=int(os.environ.get("A2A_BRIDGE_PORT", "8600")),
+    )
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
