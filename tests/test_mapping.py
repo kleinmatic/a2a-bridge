@@ -174,7 +174,7 @@ def test_recorded_fixtures_parse(path: Path):
     before any have been captured.
     """
     data = json.loads(path.read_text())
-    if "error" in data and data["error"]:
+    if data.get("error"):
         with pytest.raises(A2AProtocolError):
             parse_task(data)
         return

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 JSONRPC_VERSION = "2.0"
 
@@ -81,7 +82,7 @@ def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> tupl
     The payload lives in `result.artifacts[].parts[].text`, NOT `result.message`
     — a distinction that cost us a round of debugging when first verified.
     """
-    if "error" in response and response["error"]:
+    if response.get("error"):
         err = response["error"]
         raise A2AProtocolError(
             f"JSON-RPC error {err.get('code')}: {err.get('message')}", payload=err

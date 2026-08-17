@@ -141,7 +141,7 @@ async def chat_completions(request: Request, _: None = Depends(require_api_key))
     except A2AProtocolError as exc:
         log.error("agent %s: protocol error: %s", model, exc)
         return _error_response(agent_cfg, model, f"The agent could not answer ({exc}).", status=502)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.exception("agent %s: call failed", model)
         return _error_response(agent_cfg, model, f"The agent is unreachable ({exc}).", status=502)
 

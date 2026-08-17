@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -70,19 +69,10 @@ class AgentConfig:
     artifact_join: str = "\n\n"
     on_error: str = "message"  # "message" renders errors in-chat; "http_error" propagates
     timeout_s: float = 120.0
-    force_blocking: bool = False
-    """Ignore a card advertising streaming. A workaround of last resort — prefer
-    fixing the card, or every future agent inherits one agent's bug."""
 
     def __post_init__(self) -> None:
         if self.on_error not in {"message", "http_error"}:
             raise ValueError(f"{self.id}: on_error must be 'message' or 'http_error'")
-        # A trailing slash is load-bearing for some servers: frameworks that
-        # redirect /path -> /path/ answer with a 307, and most HTTP clients will
-        # not replay a POST body across it. Warn rather than rewrite, since only
-        # the operator knows which form their agent wants.
-        if self.endpoint_url and self.endpoint_url.endswith("/") is False:
-            pass  # documented in README; see `strict_slash` note
 
 
 @dataclass
@@ -93,7 +83,7 @@ class BridgeConfig:
     """If set, callers must present one as `Authorization: Bearer`."""
 
     @classmethod
-    def load(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> "BridgeConfig":
+    def load(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> BridgeConfig:
         raw = yaml.safe_load(Path(path).read_text()) or {}
         agents: dict[str, AgentConfig] = {}
         for entry in raw.get("agents") or []:

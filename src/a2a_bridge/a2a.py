@@ -48,7 +48,7 @@ class AgentCard:
     raw: dict[str, Any] | None = None
 
     @classmethod
-    def parse(cls, data: dict[str, Any], *, fallback_url: str) -> "AgentCard":
+    def parse(cls, data: dict[str, Any], *, fallback_url: str) -> AgentCard:
         caps = data.get("capabilities") or {}
         return cls(
             url=data.get("url") or fallback_url,
