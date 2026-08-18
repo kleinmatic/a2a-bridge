@@ -1,0 +1,39 @@
+{
+  "id": "demo-4",
+  "jsonrpc": "2.0",
+  "result": {
+    "artifacts": [
+      {
+        "artifactId": "e8b377a2-69dd-4855-b9de-d8580ba82a8a",
+        "name": "result",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "[NYC SCHOOL TOURS]\n\nHere's what's available at **P.S. 321 William Penn** in the next two weeks:\n\n| Date | Day | Open Window |\n|------|-----|-------------|\n| Tue, Aug 18 | Tuesday | 11:00 AM \u2013 4:00 PM |\n| Tue, Aug 25 | Tuesday | 11:00 AM \u2013 4:00 PM |\n\n> **Note:** Wednesday slots (3:00\u20135:00 PM) are afternoons, so they fall outside your morning preference. The two Tuesdays above are your best morning options.\n\nWhich date works for you, and what start time would you like within the 11:00 AM \u2013 4:00 PM window?\n\n[THE DATA TRIBUNE]\n\nPlease pick a date and a start time from the available Tuesday slots above and I'll confirm the booking with our tour partner right away."
+          }
+        ]
+      }
+    ],
+    "contextId": "400505af-b5f6-46b7-b7a8-b3e45a93fe79",
+    "history": [
+      {
+        "contextId": "400505af-b5f6-46b7-b7a8-b3e45a93fe79",
+        "kind": "message",
+        "messageId": "m-demo-4",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "P.S. 321, weekday mornings in the next two weeks"
+          }
+        ],
+        "role": "user",
+        "taskId": "ddb226d3-849e-4ae1-bbac-ca6efad119d9"
+      }
+    ],
+    "id": "ddb226d3-849e-4ae1-bbac-ca6efad119d9",
+    "kind": "task",
+    "status": {
+      "state": "completed"
+    }
+  }
+}
