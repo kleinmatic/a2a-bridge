@@ -7,14 +7,22 @@ synchronous chat UI anyway.
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from .config import AgentConfig
-from .mapping import TaskResult, build_message_send, parse_task
+from .mapping import (
+    StreamEvent,
+    TaskResult,
+    build_message_send,
+    parse_stream_event,
+    parse_task,
+)
 
 log = logging.getLogger("a2a_bridge.a2a")
 
@@ -140,3 +148,59 @@ class A2AClient:
         resp.raise_for_status()
 
         return parse_task(resp.json(), artifact_join=self.agent.artifact_join)
+
+    # ── streaming variant ────────────────────────────────────────────────────
+    async def stream(
+        self,
+        text: str,
+        *,
+        context_id: str | None,
+        caller_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield events from `message/stream`.
+
+        Worth it only because the agent reports progress while it works; the
+        answer itself may still arrive whole. Transport-level rejections are
+        raised the same way as in `send`, since they arrive as an HTTP status
+        before any SSE body exists.
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            **self.agent.static_headers,
+        }
+        headers.update(self.agent.caller.headers_for(caller_id))
+        payload = build_message_send(text, context_id=context_id)
+        payload["method"] = "message/stream"
+
+        async with self._client.stream(
+            "POST", self.endpoint, json=payload, headers=headers
+        ) as resp:
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After")
+                raise RateLimited(float(retry_after) if retry_after else None)
+            if resp.status_code == 413:
+                raise PayloadTooLarge("upstream rejected the request body as too large")
+            if 300 <= resp.status_code < 400:
+                raise RuntimeError(
+                    f"agent {self.agent.id}: endpoint redirected ({resp.status_code}) to "
+                    f"{resp.headers.get('Location')!r}. Set endpoint_url to the exact form, "
+                    "including any trailing slash."
+                )
+            resp.raise_for_status()
+
+            async for line in resp.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                body = line[len("data:") :].strip()
+                if body == "[DONE]":
+                    break
+                try:
+                    frame = json.loads(body)
+                except ValueError:
+                    log.warning("agent %s: unparseable SSE frame, skipped", self.agent.id)
+                    continue
+                event = parse_stream_event(frame)
+                if event is not None:
+                    yield event
