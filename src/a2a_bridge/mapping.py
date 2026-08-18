@@ -129,6 +129,82 @@ def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> Task
     return TaskResult(text=text, context_id=context_id, state=state, task_id=task_id)
 
 
+@dataclass(frozen=True)
+class StreamEvent:
+    """One decoded frame of an A2A `message/stream` response.
+
+    Three shapes matter: a working-state note meant for the user to read while
+    waiting, a chunk of the answer, and the terminal marker.
+    """
+
+    kind: str                      # "progress" | "artifact" | "final"
+    text: str = ""
+    context_id: str | None = None
+    task_id: str | None = None
+    state: str | None = None
+
+
+def parse_stream_event(payload: dict[str, Any]) -> StreamEvent | None:
+    """Decode one SSE frame. Returns None for frames carrying nothing useful.
+
+    Progress copy lives on the task STATUS, not in an artifact, which is what
+    keeps it out of the answer text — a status note is never mistaken for content.
+    """
+    if payload.get("error"):
+        err = payload["error"]
+        raise A2AProtocolError(
+            f"JSON-RPC error {err.get('code')}: {err.get('message')}", payload=err
+        )
+
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+
+    common = {"context_id": result.get("contextId"), "task_id": result.get("taskId") or result.get("id")}
+    kind = result.get("kind")
+
+    if kind == "artifact-update":
+        artifact = result.get("artifact") or {}
+        text = "".join(
+            part.get("text", "")
+            for part in artifact.get("parts") or []
+            if part.get("kind") == "text"
+        )
+        return StreamEvent(kind="artifact", text=text, **common)
+
+    if kind == "status-update":
+        status = result.get("status") or {}
+        state = status.get("state")
+        if result.get("final"):
+            return StreamEvent(kind="final", state=state, **common)
+        message = status.get("message") or {}
+        note = " ".join(
+            part.get("text", "")
+            for part in message.get("parts") or []
+            if part.get("kind") == "text"
+        ).strip()
+        if not note:
+            return None
+        return StreamEvent(kind="progress", text=note, state=state, **common)
+
+    return None
+
+
+def sse_frame(delta: dict[str, Any], *, model: str, completion_id: str, created: int,
+              finish: str | None = None) -> str:
+    """One `chat.completion.chunk` frame."""
+    import json
+
+    payload = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+    }
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 def chat_completion(text: str, *, model: str, completion_id: str | None = None) -> dict[str, Any]:
     """Wrap text in a non-streaming chat-completions response.
 

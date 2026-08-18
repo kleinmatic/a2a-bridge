@@ -13,7 +13,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from .a2a import A2AClient, PayloadTooLarge, RateLimited
 from .config import BridgeConfig
-from .mapping import A2AProtocolError, chat_completion, last_user_text, sse_chunks
+from .mapping import (
+    A2AProtocolError,
+    chat_completion,
+    last_user_text,
+    sse_chunks,
+    sse_frame,
+)
 from .store import build_store
 
 log = logging.getLogger("a2a_bridge")
@@ -103,6 +109,86 @@ def _conversation_id(agent, request: Request, body: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(seed.encode()).hexdigest()[:32]
 
 
+async def _streamed(request: Request, agent_cfg, client, store, model: str,
+                   text: str, conversation_id: str, caller_id: str | None,
+                   context_id: str | None):
+    """Serve a streaming request from the agent's own stream.
+
+    Progress notes are forwarded as they arrive so the user sees movement instead
+    of a blank pane; the answer follows. Both go down the single content channel
+    the chat-completions format provides, so ordering is the only separation
+    available — hence notes first, answer last.
+    """
+    import time
+    import uuid as _uuid
+
+    completion_id = f"chatcmpl-{_uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+    wrap = (agent_cfg.progress_prefix, agent_cfg.progress_suffix)
+
+    async def gen():
+        answer: list[str] = []
+        seen_context = context_id
+        seen_task = None
+        wrote_progress = False
+        yield sse_frame({"role": "assistant"}, model=model, completion_id=completion_id, created=created)
+        try:
+            async for ev in client.stream(text, context_id=context_id, caller_id=caller_id):
+                seen_context = ev.context_id or seen_context
+                seen_task = ev.task_id or seen_task
+                if ev.kind == "progress" and agent_cfg.show_progress:
+                    wrote_progress = True
+                    yield sse_frame(
+                        {"content": f"{wrap[0]}{ev.text}{wrap[1]}\n"},
+                        model=model, completion_id=completion_id, created=created,
+                    )
+                elif ev.kind == "artifact" and ev.text:
+                    if wrote_progress and not answer:
+                        # separate the work log from the answer
+                        yield sse_frame({"content": "\n"}, model=model,
+                                        completion_id=completion_id, created=created)
+                    answer.append(ev.text)
+                    yield sse_frame({"content": ev.text}, model=model,
+                                    completion_id=completion_id, created=created)
+        except RateLimited as exc:
+            detail = "The agent is rate limiting requests."
+            if exc.retry_after:
+                detail += f" Try again in about {exc.retry_after:.0f}s."
+            yield sse_frame({"content": detail}, model=model,
+                            completion_id=completion_id, created=created)
+        except Exception as exc:
+            log.exception("agent %s: stream failed", model)
+            yield sse_frame({"content": f"\n\nThe agent stopped mid-answer ({exc})."},
+                            model=model, completion_id=completion_id, created=created)
+
+        if seen_context and seen_context != context_id:
+            store.put(model, conversation_id, seen_context)
+        try:
+            store.record_turn(
+                model, conversation_id, seen_context, seen_task,
+                datetime.now(UTC).isoformat(),
+                request_message_id=(
+                    request.headers.get(agent_cfg.message_id_header)
+                    if agent_cfg.message_id_header
+                    else None
+                ),
+            )
+        except Exception:
+            log.exception("agent %s: failed to record turn (answer unaffected)", model)
+
+        log.info(
+            "agent=%s conversation=%s context=%s task=%s streamed chars=%d",
+            model, conversation_id, seen_context, seen_task, sum(len(a) for a in answer),
+        )
+        yield sse_frame({}, model=model, completion_id=completion_id, created=created, finish="stop")
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, _: None = Depends(require_api_key)):
     cfg: BridgeConfig = STATE["config"]
@@ -124,6 +210,21 @@ async def chat_completions(request: Request, _: None = Depends(require_api_key))
     conversation_id = _conversation_id(agent_cfg, request, body)
     caller_id = request.headers.get(agent_cfg.caller.id_header) if agent_cfg.caller.id_header else None
     context_id = store.get(model, conversation_id)
+
+    # Prefer the agent's own stream when it has one: it is the only way its
+    # working-state notes reach the user. Falls back silently, because a missing
+    # card or a non-streaming agent should degrade to a slower answer, not none.
+    if body.get("stream") and agent_cfg.stream_mode == "auto":
+        try:
+            card = await client.card()
+            streaming_supported = card.streaming
+        except Exception:  # noqa: BLE001
+            streaming_supported = False
+        if streaming_supported:
+            return await _streamed(
+                request, agent_cfg, client, store, model, text,
+                conversation_id, caller_id, context_id,
+            )
 
     try:
         result = await client.send(text, context_id=context_id, caller_id=caller_id)

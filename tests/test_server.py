@@ -31,6 +31,10 @@ agents:
       id_header: X-Caller-Id
       auth_header: X-Caller-Auth
       secret_env: TEST_SECRET
+  - id: blocking-publisher
+    card_url: {AGENT_URL}
+    conversation_id_header: X-Conversation-Id
+    stream_mode: blocking
 """
 
 CARD = {
@@ -72,7 +76,7 @@ def client(tmp_path, monkeypatch):
 def test_healthz_and_models(client):
     assert client.get("/healthz").json()["status"] == "ok"
     body = client.get("/v1/models").json()
-    assert [m["id"] for m in body["data"]] == ["publisher"]
+    assert [m["id"] for m in body["data"]] == ["blocking-publisher", "publisher"]
 
 
 def test_unknown_model_is_404(client):
@@ -139,13 +143,18 @@ def test_separate_conversations_get_separate_contexts(client):
     assert "contextId" not in sent["params"]["message"], "a new conversation starts fresh"
 
 
-def test_streaming_response(client):
+def test_streaming_response_for_a_blocking_agent(client):
+    """stream_mode: blocking still satisfies a streaming client.
+
+    Chat clients request streaming by default and break on a plain body, so the
+    finished answer is emitted as a single delta rather than refused.
+    """
     client.respx.post(AGENT_URL).mock(
         return_value=httpx.Response(200, json=a2a_task("streamed", context_id="ctx-1"))
     )
     r = client.post("/v1/chat/completions",
                     headers={"X-Conversation-Id": "conv-s"},
-                    json={"model": "publisher", "stream": True,
+                    json={"model": "blocking-publisher", "stream": True,
                           "messages": [{"role": "user", "content": "hi"}]})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/event-stream")
@@ -243,3 +252,59 @@ def test_a_store_failure_never_costs_the_user_their_answer(client, monkeypatch):
                     json={"model": "publisher", "messages": [{"role": "user", "content": "hi"}]})
     assert r.status_code == 200
     assert r.json()["choices"][0]["message"]["content"] == "still fine"
+
+
+SSE_WITH_PROGRESS = (
+    'data: {"jsonrpc":"2.0","result":{"kind":"status-update","contextId":"ctx-9",'
+    '"taskId":"task-9","final":false,"status":{"state":"working","message":'
+    '{"role":"agent","parts":[{"kind":"text","text":"Reading your question\u2026"}]}}}}\n\n'
+    'data: {"jsonrpc":"2.0","result":{"kind":"status-update","contextId":"ctx-9",'
+    '"taskId":"task-9","final":false,"status":{"state":"working","message":'
+    '{"role":"agent","parts":[{"kind":"text","text":"Handing off to Tours\u2026"}]}}}}\n\n'
+    'data: {"jsonrpc":"2.0","result":{"kind":"artifact-update","contextId":"ctx-9",'
+    '"taskId":"task-9","artifact":{"parts":[{"kind":"text","text":"[TOURS]\\nBooked."}]}}}\n\n'
+    'data: {"jsonrpc":"2.0","result":{"kind":"status-update","contextId":"ctx-9",'
+    '"taskId":"task-9","final":true,"status":{"state":"completed"}}}\n\n'
+)
+
+
+def test_progress_notes_are_forwarded_then_the_answer(client):
+    """Working-state notes reach the user before the answer exists.
+
+    This is the whole reason for using the streaming method: the answer may still
+    arrive whole, so the gain is movement during the wait, not a typing effect.
+    """
+    client.respx.post(AGENT_URL).mock(
+        return_value=httpx.Response(200, text=SSE_WITH_PROGRESS,
+                                    headers={"Content-Type": "text/event-stream"})
+    )
+    r = client.post("/v1/chat/completions",
+                    headers={"X-Conversation-Id": "conv-p", "X-Message-Id": "m-1"},
+                    json={"model": "publisher", "stream": True,
+                          "messages": [{"role": "user", "content": "book a tour"}]})
+    assert r.status_code == 200
+    body = r.text
+    # notes arrive, wrapped so they read as distinct from the answer
+    assert "_Reading your question" in body
+    assert "_Handing off to Tours" in body
+    # the answer follows, verbatim -- labels intact
+    assert "[TOURS]" in body and "Booked." in body
+    assert body.index("Reading your question") < body.index("Booked."), "notes must precede the answer"
+    assert body.endswith("data: [DONE]\n\n")
+
+    # the turn is still recorded, with the ids the stream carried
+    turns = server_mod.STATE["store"]._turns
+    assert turns and turns[-1][2] == "ctx-9" and turns[-1][3] == "task-9"
+    assert turns[-1][5] == "m-1"
+
+
+def test_a_stream_that_dies_midway_still_tells_the_user(client):
+    """A truncated stream must not look like a finished empty answer."""
+    client.respx.post(AGENT_URL).mock(side_effect=httpx.ReadError("connection lost"))
+    r = client.post("/v1/chat/completions",
+                    headers={"X-Conversation-Id": "conv-d"},
+                    json={"model": "publisher", "stream": True,
+                          "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200
+    assert "stopped mid-answer" in r.text or "rate limiting" in r.text
+    assert r.text.endswith("data: [DONE]\n\n")

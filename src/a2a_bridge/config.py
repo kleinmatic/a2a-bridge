@@ -79,11 +79,39 @@ class AgentConfig:
     static_headers: dict[str, str] = field(default_factory=dict)
     artifact_join: str = "\n\n"
     on_error: str = "message"  # "message" renders errors in-chat; "http_error" propagates
+
+    stream_mode: str = "auto"
+    """How to serve a streaming request.
+
+    "auto" uses the agent's streaming method when its card advertises support, so
+    working-state notes can reach the user while they wait. "blocking" always
+    makes the simple call and emits the finished answer as one chunk.
+
+    Note the card advertising streaming means the METHOD exists, not that text
+    arrives incrementally — an agent may still return its answer whole. The gain
+    is progress, not a typing effect.
+    """
+
+    show_progress: bool = True
+    """Render the agent's working-state notes as they arrive.
+
+    They become part of the saved message: the chat-completions wire format has
+    only one content channel, so nothing streamed can later be retracted. That is
+    a deliberate trade — for a multi-agent backend the notes say which agent is
+    doing what, which is worth keeping in the record.
+    """
+
+    progress_prefix: str = "_"
+    progress_suffix: str = "_"
+    """Wrapped so notes read as distinct from the answer. Markdown italics by
+    default; set both empty for plain text."""
     timeout_s: float = 120.0
 
     def __post_init__(self) -> None:
         if self.on_error not in {"message", "http_error"}:
             raise ValueError(f"{self.id}: on_error must be 'message' or 'http_error'")
+        if self.stream_mode not in {"auto", "blocking"}:
+            raise ValueError(f"{self.id}: stream_mode must be 'auto' or 'blocking'")
 
 
 @dataclass
