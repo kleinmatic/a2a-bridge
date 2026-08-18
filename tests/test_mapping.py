@@ -215,3 +215,31 @@ def test_sqlite_store_migrates_a_pre_existing_table(tmp_path):
     ).fetchone()
     assert row == ("task-1", "msg-1")
     store.close()
+
+
+def test_fragmented_parts_concatenate_without_a_separator():
+    """A streaming agent emits one part per chunk of ONE document.
+
+    Real shape from the live agent: ['[', 'THE RIDGELINE GAZETTE]\\n\\nSubscriber-only',
+    ' just need three things:', ...]. Joining these with the artifact separator
+    splits words and breaks markdown mid-token — it rendered '[', 'THE', 'DATA'
+    on separate lines in a live demo.
+    """
+    resp = task(artifacts=[{"parts": [
+        {"kind": "text", "text": "["},
+        {"kind": "text", "text": "THE RIDGELINE GAZETTE]\n\nSubscriber-only briefing. I"},
+        {"kind": "text", "text": " need three things:"},
+        {"kind": "text", "text": ""},
+    ]}])
+    text = parse_task(resp, artifact_join="\n\n").text
+    assert text == "[THE RIDGELINE GAZETTE]\n\nSubscriber-only briefing. I need three things:"
+    assert "[\n\nTHE" not in text
+
+
+def test_separate_artifacts_still_get_the_separator():
+    """Distinct artifacts are distinct documents, unlike fragments of one."""
+    resp = task(artifacts=[
+        {"parts": [{"kind": "text", "text": "first"}]},
+        {"parts": [{"kind": "text", "text": "second"}]},
+    ])
+    assert parse_task(resp, artifact_join="\n\n").text == "first\n\nsecond"

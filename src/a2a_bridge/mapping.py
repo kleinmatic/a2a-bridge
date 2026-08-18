@@ -115,13 +115,25 @@ def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> Task
     task_id = result.get("id")
     state = (result.get("status") or {}).get("state", "unknown")
 
-    chunks: list[str] = []
+    # Two different joins, and conflating them corrupts the text.
+    #
+    # Parts WITHIN one artifact are fragments of a single document — a streaming
+    # agent emits one part per chunk, so "[", "THE RIDGE", "LINE GAZETTE]" must
+    # concatenate with nothing between them. Any separator here splits words and
+    # breaks markdown mid-token.
+    #
+    # Separate artifacts ARE separate documents, so they keep `artifact_join`.
+    documents: list[str] = []
     for artifact in result.get("artifacts") or []:
-        for part in artifact.get("parts") or []:
-            if part.get("kind") == "text" and part.get("text"):
-                chunks.append(part["text"])
+        fragments = [
+            part["text"]
+            for part in artifact.get("parts") or []
+            if part.get("kind") == "text" and part.get("text")
+        ]
+        if fragments:
+            documents.append("".join(fragments))
 
-    text = artifact_join.join(chunks)
+    text = artifact_join.join(documents)
 
     if not text and state in FAILED_STATES:
         raise A2AProtocolError(f"agent returned state {state!r} with no text", state=state, payload=result)
