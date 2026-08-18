@@ -18,42 +18,70 @@ Adding an agent is a config block, not a code change.
 ## Why not MCP?
 
 MCP exposes an agent as a *tool*, which means a model sits between the agent and the user and
-paraphrases whatever comes back. That is fine for data lookups and destructive for anything where
-the agent's own voice, formatting, or cross-agent attribution matters — multi-agent responses that
+paraphrases whatever comes back. Fine for data lookups, destructive for anything where the
+agent's own voice, formatting, or cross-agent attribution matters — multi-agent responses that
 label which agent said what get flattened into a summary.
 
-A2A treats the far side as a peer, not a function call. This bridge keeps that property: there is
-**no model in the path**. The user's text goes to the agent, and the agent's text is what renders.
+A2A treats the far side as a peer, not a function call. This bridge keeps that property: there
+is **no model in the path**. The user's text goes to the agent, and the agent's text is what
+renders.
 
-## Install
+---
+
+## Quickstart
 
 ```bash
-pip install a2a-bridge          # or: pip install 'a2a-bridge[mongo]'
+pip install -e .                       # or: pip install a2a-bridge
 cp examples/agents.example.yml agents.yml
+$EDITOR agents.yml                     # set card_url to your agent
 A2A_BRIDGE_CONFIG=agents.yml python -m a2a_bridge.server
 ```
 
-Or with Docker:
+Verify without a chat client in the loop:
+
+```bash
+curl -s localhost:8600/healthz
+curl -s localhost:8600/v1/models
+
+curl -s localhost:8600/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Conversation-Id: test-1' \
+  -d '{"model":"myagent","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Then send a **second** request with the same `X-Conversation-Id` and a follow-up that depends on
+the first answer. If the agent remembers, sessions work — that is the part most likely to be
+subtly broken, and the part hardest to notice later.
+
+### Docker
 
 ```bash
 docker build -t a2a-bridge .
-docker run -p 8600:8600 -v "$PWD/agents.yml:/app/agents.yml:ro" a2a-bridge
+docker run -p 8600:8600 \
+  -v "$PWD/agents.yml:/app/agents.yml:ro" \
+  -v a2a_data:/data \
+  a2a-bridge
 ```
+
+Keep `/data` on a volume. It holds the conversation → contextId map, and losing it means every
+user starts over — including losing whatever the agent had decided about them.
+
+---
 
 ## Configure
 
 ```yaml
-store: "sqlite:///data/context.db"
+store: "sqlite:///data/context.db"     # memory:// | sqlite:///path | mongodb://...
+api_keys_env: A2A_BRIDGE_API_KEYS      # comma-separated; omit to leave the bridge open
+
 agents:
-  - id: publisher                                   # becomes the model name
-    card_url: https://example.org/api/publisher/
-    conversation_id_header: X-Conversation-Id
+  - id: myagent                                    # becomes the model name
+    card_url: https://agent.example.org/api/agent/
+    conversation_id_header: X-Conversation-Id      # see "Sessions" below
 ```
 
-Everything else — the JSON-RPC endpoint, the protocol version, streaming support — is read from
-the agent card. See [`examples/agents.example.yml`](examples/agents.example.yml) for every option.
-
-### Endpoints
+Everything else — the JSON-RPC endpoint, protocol version, streaming support — is read from the
+agent card. See [`examples/agents.example.yml`](examples/agents.example.yml) for every option.
 
 | Route | Purpose |
 |---|---|
@@ -61,72 +89,107 @@ the agent card. See [`examples/agents.example.yml`](examples/agents.example.yml)
 | `GET /v1/models` | one entry per configured agent, so clients self-populate |
 | `GET /healthz` | liveness |
 
-## Using it from LibreChat
+---
 
-Add a custom endpoint in `librechat.yaml`:
+## Using it with LibreChat
+
+Short version:
 
 ```yaml
 endpoints:
   custom:
-    - name: "Publisher"
+    - name: "My Agent"
       apiKey: "${A2A_BRIDGE_API_KEY}"
       baseURL: "http://a2a-bridge:8600/v1"
-      models:
-        default: ["publisher"]
-        fetch: true
+      models: { default: ["myagent"], fetch: false }
       headers:
         X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
-        X-Caller-Id: "{{LIBRECHAT_USER_ID}}"
-      titleEndpoint: "bedrock"        # keep title generation off the agent
+      titleEndpoint: "bedrock"     # anything BUT this endpoint
       maxContextTokens: 200000
 ```
 
-Three things worth knowing:
+**→ Full guide, including the `@mention` setup and a list of traps that do not announce
+themselves: [docs/librechat.md](docs/librechat.md).**
 
-- **`{{LIBRECHAT_BODY_CONVERSATIONID}}` is what makes sessions work.** It gives the bridge a stable
-  key per conversation. Without it the bridge falls back to hashing the first user message, which
-  breaks if that message is ever edited.
-- **Set `titleEndpoint` (or `titleConvo: false`).** Otherwise every new conversation fires an extra
-  "summarize this in a few words" request into your agent — real traffic, real cost, and a chance of
-  a guard refusing it and producing a strange title.
-- **`maxContextTokens` is required.** A2A carries no token counts, so the bridge reports zero and
-  LibreChat's defaults are small.
+Read the traps section before debugging anything. Several of them fail silently — a wrong trailing
+slash, a title model that does not exist, a config file whose inode changed — and each one looks
+like a different problem than it is.
+
+---
+
+## What the agent needs to support
+
+Minimum for a working integration:
+
+- An **agent card**, at `/.well-known/agent-card.json` or served from the endpoint itself.
+- **`message/send`** (JSON-RPC 2.0), returning a Task whose text lives in
+  `result.artifacts[].parts[].text`.
+- A **server-minted `contextId`** returned on the first response and honoured on later ones.
+
+Optional, and worth having:
+
+- **`message/stream`** — mainly for working-state notes, which turn a long blank wait into visible
+  progress. Streaming does not imply incremental text; many agents send a whole artifact at once.
+- **Working-state `status.message`** copy — "Searching…", "Handing off to X…" — forwarded to the
+  user as it arrives.
+
+Not used: Task lifecycle management, polling, push notifications. An agent needing those is not
+yet a fit for a synchronous chat UI.
+
+---
+
+## Sessions
+
+The single most important thing to get right.
+
+The bridge omits `contextId` on the first turn, lets the server mint one, stores it against the
+client's conversation id, and echoes it afterwards. Agents commonly bind session state to that
+value — history, entitlement, subscription — so a rotated `contextId` can silently send a user
+back to the beginning.
+
+That is why `conversation_id_header` matters. Without it the bridge falls back to hashing the
+first user message, which breaks the moment anyone edits or regenerates it.
+
+---
 
 ## Design notes
 
-Behaviors that took real debugging to establish, in case they look arbitrary:
+Behaviours that took real debugging to establish, in case they look arbitrary:
 
 **Only the newest user turn is sent.** A2A agents are stateful per `contextId` and keep their own
-transcript. Replaying the client's full history would duplicate their context every turn and
-inflate their token spend.
+transcript. Replaying the client's history would duplicate their context every turn and inflate
+their token spend.
 
-**`contextId` is minted by the server, never by us.** The bridge omits it on the first turn, stores
-whatever comes back, and echoes it afterwards. Agents commonly bind session state to that value —
-including entitlement decisions — so a rotated `contextId` can silently send someone back to the
-start. It is also why the bridge persists the mapping rather than holding it in memory by default.
+**Parts within an artifact concatenate with nothing between them; separate artifacts get the
+separator.** A streaming agent emits one part per chunk of a single string. Using a separator for
+both splits words and breaks markdown mid-token.
 
-**The payload is in `result.artifacts[].parts[].text`, not `result.message`.**
+**Two failure layers.** JSON-RPC errors arrive as HTTP 200 with an `error` object. Rate limiting
+arrives as a bare HTTP 429 with an **empty body**, from middleware above the JSON-RPC app — no
+envelope, nothing to parse. Code that only inspects JSON-RPC errors mistakes one for the other.
 
-**Rate limiting usually arrives as a bare HTTP status with an empty body.** Middleware tends to sit
-*above* the JSON-RPC app, so there is no envelope to parse. Code that only inspects JSON-RPC errors
-will misread a 429 as a malformed response. The bridge checks the status, and **never retries** —
-a throttled request is information the operator wants, not something to bury in a retry loop.
+**429 is surfaced, never retried.** A throttled request is information the operator wants, not
+something to hide in a retry loop.
 
-**Redirects are not followed.** A `307` on a POST loses its body in most clients. The usual cause is
-a missing trailing slash, so the bridge reports it as the configuration error it is.
+**Redirects are not followed.** A `307` on a POST loses its body in most clients. Usually a missing
+trailing slash, so it is reported as the configuration error it is.
 
-**Streaming is supported even for blocking agents.** Chat clients commonly send `stream: true` by
-default and break on a plain JSON body. When the agent returns a whole answer at once, the bridge
-emits it as a single content delta — the client gets its expected framing without any pretence of
-token-by-token generation.
+**Streaming is always available to the client.** Chat clients request `stream: true` by default and
+break on a plain JSON body, so a blocking agent's answer is emitted as a single delta.
 
-**Failures render in-chat by default.** A non-2xx becomes a contextless red banner in most chat UIs.
-Set `on_error: http_error` per agent if you would rather have the status code.
+**Failures render in-chat by default.** A non-2xx becomes a contextless red banner in most chat
+UIs. Set `on_error: http_error` per agent for programmatic callers.
+
+**Per-turn ids are recorded even though nothing reads them.** The agent's task id is emitted once
+and cannot be reconstructed later; without it, "which answer was this about?" is unanswerable for
+feedback, cost or audit.
+
+---
 
 ## Forwarding caller identity
 
-Agents that rate-limit per IP see every user of a server-side bridge as a single caller, which means
-one busy user can throttle everyone. If the agent supports it, forward a stable per-user id:
+Agents that rate-limit per IP see every user of a server-side bridge as one caller, so one busy
+user throttles everyone. If the agent supports it, forward a stable per-user id:
 
 ```yaml
     caller:
@@ -135,27 +198,37 @@ one busy user can throttle everyone. If the agent supports it, forward a stable 
       secret_env: MY_SHARED_SECRET
 ```
 
-The bridge sends the id plus an HMAC-SHA256 of it under a shared secret, so the agent can verify the
-identity rather than trust it. **An unsigned identity header is a rate-limit bypass** waiting to be
-found, and the secret must stay server-side — never let it reach a browser.
+The bridge sends the id plus an HMAC-SHA256 of it under a shared secret, so the agent can verify
+rather than trust. **An unsigned identity header is a rate-limit bypass** waiting to be found, and
+the secret must stay server-side.
+
+Use a secret scoped to *this purpose*. If the agent's operator offers you a key that also signs
+sessions or authorises billing, ask for a separate one — proving "this caller id came from me"
+needs far less authority than that.
+
+---
 
 ## Development
 
 ```bash
 pip install -e '.[dev]'
 pytest
+ruff check src tests
 ```
 
 Contract tests live in `tests/`. Recorded wire responses go in `tests/fixtures/` — see the README
-there. The point of recording rather than hand-writing them is that the tests should fail when a
-peer changes its wire shape, which only works if the fixtures came off the wire.
+there. Recording rather than hand-writing them is the point: the tests should fail when a peer
+changes its wire shape, which only works if the fixtures came off the wire.
+
+The fixtures shipped here are from a live multi-agent publisher, including a paywall gate, a
+cross-agent handoff, both JSON-RPC error shapes, and streaming with progress notes.
+
+---
 
 ## Status
 
-Early. The A2A surface covered is deliberately small: blocking `message/send`, card discovery, and
-one request/response turn. No Task lifecycle management, no push notifications, no
-`message/stream` passthrough — that last one only becomes worthwhile once agents emit incremental
-artifact updates rather than one whole artifact.
+Early, and deliberately small. Blocking `message/send`, optional `message/stream`, card discovery,
+one request/response turn. No Task lifecycle management, no push notifications.
 
 ## License
 
