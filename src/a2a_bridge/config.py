@@ -64,6 +64,17 @@ class AgentConfig:
     conversation_id_header: str | None = None
     """Header carrying the client's conversation id, used to key contextId."""
 
+    message_id_header: str | None = None
+    """Header carrying the client's id for THIS user turn.
+
+    Recorded, never used for routing. It is what makes a turn identifiable after
+    the fact: chat clients typically link a reply to the message that prompted it,
+    so the inbound id resolves to the reply, and from there to anything attached
+    to that reply — a rating, a cost, an audit note. Without it the best available
+    join is ordinal or timestamp matching, which breaks the moment a user edits or
+    regenerates a turn.
+    """
+
     caller: CallerAuth = field(default_factory=CallerAuth)
     static_headers: dict[str, str] = field(default_factory=dict)
     artifact_join: str = "\n\n"

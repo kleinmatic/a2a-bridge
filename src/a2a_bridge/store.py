@@ -33,6 +33,7 @@ class ContextStore(ABC):
         context_id: str | None,
         task_id: str | None,
         completed_at: str,
+        request_message_id: str | None = None,
     ) -> None:
         """Append one row per completed turn.
 
@@ -65,9 +66,11 @@ class MemoryStore(ContextStore):
         with self._lock:
             self._d[(agent_id, conversation_id)] = context_id
 
-    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at) -> None:
+    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at,
+                    request_message_id=None) -> None:
         with self._lock:
-            self._turns.append((agent_id, conversation_id, context_id, task_id, completed_at))
+            self._turns.append((agent_id, conversation_id, context_id, task_id, completed_at,
+                                request_message_id))
 
 
 class SqliteStore(ContextStore):
@@ -94,7 +97,8 @@ class SqliteStore(ContextStore):
                        context_id      TEXT,
                        task_id         TEXT,
                        completed_at    TEXT NOT NULL,
-                       seq             INTEGER NOT NULL
+                       seq             INTEGER NOT NULL,
+                       request_message_id TEXT
                    )"""
             )
             self._conn.execute(
@@ -102,16 +106,18 @@ class SqliteStore(ContextStore):
             )
             self._conn.commit()
 
-    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at) -> None:
+    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at,
+                    request_message_id=None) -> None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT COALESCE(MAX(seq), 0) + 1 FROM turns WHERE agent_id=? AND conversation_id=?",
                 (agent_id, conversation_id),
             ).fetchone()
             self._conn.execute(
-                "INSERT INTO turns (agent_id, conversation_id, context_id, task_id, completed_at, seq)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (agent_id, conversation_id, context_id, task_id, completed_at, row[0]),
+                "INSERT INTO turns (agent_id, conversation_id, context_id, task_id, completed_at,"
+                " seq, request_message_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (agent_id, conversation_id, context_id, task_id, completed_at, row[0],
+                 request_message_id),
             )
             self._conn.commit()
 
@@ -169,7 +175,8 @@ class MongoStore(ContextStore):
             upsert=True,
         )
 
-    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at) -> None:
+    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at,
+                    request_message_id=None) -> None:
         seq = self._turns.count_documents(
             {"agent_id": agent_id, "conversation_id": conversation_id}
         ) + 1
@@ -180,6 +187,7 @@ class MongoStore(ContextStore):
             "task_id": task_id,
             "completed_at": completed_at,
             "seq": seq,
+            "request_message_id": request_message_id,
         })
 
     def close(self) -> None:
