@@ -24,6 +24,17 @@ agents:
     #     X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
     conversation_id_header: X-Conversation-Id
 
+    # This turn's message id, from the client. Optional but nearly free: it is
+    # what later lets a rating, cost or audit note on a reply be traced back to
+    # the exact agent turn that produced it. Cannot be reconstructed afterwards.
+    #   LibreChat: "{{LIBRECHAT_BODY_MESSAGEID}}"
+    message_id_header: X-Message-Id
+
+    # "auto" uses the agent's streaming method when its card advertises one, so
+    # working-state notes reach the user while they wait. "blocking" never does.
+    stream_mode: auto
+    show_progress: true
+
     # Forward a stable per-user id so the agent can rate-limit per user instead
     # of per IP — without this, every user of a server-side bridge looks like one
     # caller. The HMAC makes the id unforgeable; the secret is env-only and must
