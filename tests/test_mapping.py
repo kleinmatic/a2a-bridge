@@ -183,3 +183,35 @@ def test_recorded_fixtures_parse(path: Path):
     assert state, f"{path.name}: no task state"
     if state not in {"failed", "rejected", "canceled"}:
         assert text, f"{path.name}: terminal-ok task with no text"
+
+
+def test_sqlite_store_migrates_a_pre_existing_table(tmp_path):
+    """A store created before a column existed must gain it, not silently drop data.
+
+    The volume outlives container rebuilds on purpose, so an old schema is the
+    normal case after an upgrade, not an edge case.
+    """
+    import sqlite3
+
+    from a2a_bridge.store import SqliteStore
+
+    db = tmp_path / "old.db"
+    # Simulate the previous release's schema: no request_message_id.
+    old = sqlite3.connect(db)
+    old.execute(
+        """CREATE TABLE turns (
+               id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+               conversation_id TEXT NOT NULL, context_id TEXT, task_id TEXT,
+               completed_at TEXT NOT NULL, seq INTEGER NOT NULL)"""
+    )
+    old.commit()
+    old.close()
+
+    store = SqliteStore(str(db))
+    store.record_turn("a", "c1", "ctx", "task-1", "2026-01-01T00:00:00+00:00",
+                      request_message_id="msg-1")
+    row = store._conn.execute(
+        "SELECT task_id, request_message_id FROM turns"
+    ).fetchone()
+    assert row == ("task-1", "msg-1")
+    store.close()
