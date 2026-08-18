@@ -26,6 +26,27 @@ class ContextStore(ABC):
     @abstractmethod
     def put(self, agent_id: str, conversation_id: str, context_id: str) -> None: ...
 
+    def record_turn(
+        self,
+        agent_id: str,
+        conversation_id: str,
+        context_id: str | None,
+        task_id: str | None,
+        completed_at: str,
+    ) -> None:
+        """Append one row per completed turn.
+
+        Exists so a turn can be identified after the fact. `context_id` names the
+        conversation; only `task_id` names the individual answer, and the agent
+        emits it once, at request time. Anything that later needs to say "this
+        specific reply" — feedback, a billing query, an audit — is impossible to
+        reconstruct without it, so it is stored unconditionally rather than when
+        some consumer asks for it.
+
+        Best-effort by contract: a failure here must never break a live answer.
+        """
+        return
+
     def close(self) -> None:  # pragma: no cover - trivial
         pass
 
@@ -33,6 +54,7 @@ class ContextStore(ABC):
 class MemoryStore(ContextStore):
     def __init__(self) -> None:
         self._d: dict[tuple[str, str], str] = {}
+        self._turns: list[tuple] = []
         self._lock = threading.Lock()
 
     def get(self, agent_id: str, conversation_id: str) -> str | None:
@@ -42,6 +64,10 @@ class MemoryStore(ContextStore):
     def put(self, agent_id: str, conversation_id: str, context_id: str) -> None:
         with self._lock:
             self._d[(agent_id, conversation_id)] = context_id
+
+    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at) -> None:
+        with self._lock:
+            self._turns.append((agent_id, conversation_id, context_id, task_id, completed_at))
 
 
 class SqliteStore(ContextStore):
@@ -59,6 +85,33 @@ class SqliteStore(ContextStore):
                        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
                        PRIMARY KEY (agent_id, conversation_id)
                    )"""
+            )
+            self._conn.execute(
+                """CREATE TABLE IF NOT EXISTS turns (
+                       id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                       agent_id        TEXT NOT NULL,
+                       conversation_id TEXT NOT NULL,
+                       context_id      TEXT,
+                       task_id         TEXT,
+                       completed_at    TEXT NOT NULL,
+                       seq             INTEGER NOT NULL
+                   )"""
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS turns_convo ON turns (agent_id, conversation_id, seq)"
+            )
+            self._conn.commit()
+
+    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at) -> None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM turns WHERE agent_id=? AND conversation_id=?",
+                (agent_id, conversation_id),
+            ).fetchone()
+            self._conn.execute(
+                "INSERT INTO turns (agent_id, conversation_id, context_id, task_id, completed_at, seq)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (agent_id, conversation_id, context_id, task_id, completed_at, row[0]),
             )
             self._conn.commit()
 
@@ -100,6 +153,8 @@ class MongoStore(ContextStore):
         db = self._client.get_default_database() if database is None else self._client[database]
         self._col = db[collection]
         self._col.create_index([("agent_id", 1), ("conversation_id", 1)], unique=True)
+        self._turns = db[collection + "_turns"]
+        self._turns.create_index([("agent_id", 1), ("conversation_id", 1), ("seq", 1)])
 
     def get(self, agent_id: str, conversation_id: str) -> str | None:
         doc = self._col.find_one(
@@ -113,6 +168,19 @@ class MongoStore(ContextStore):
             {"$set": {"context_id": context_id}, "$currentDate": {"updated_at": True}},
             upsert=True,
         )
+
+    def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at) -> None:
+        seq = self._turns.count_documents(
+            {"agent_id": agent_id, "conversation_id": conversation_id}
+        ) + 1
+        self._turns.insert_one({
+            "agent_id": agent_id,
+            "conversation_id": conversation_id,
+            "context_id": context_id,
+            "task_id": task_id,
+            "completed_at": completed_at,
+            "seq": seq,
+        })
 
     def close(self) -> None:
         self._client.close()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 JSONRPC_VERSION = "2.0"
@@ -70,14 +71,32 @@ def build_message_send(text: str, *, context_id: str | None = None, request_id: 
     }
 
 
+@dataclass(frozen=True)
+class TaskResult:
+    """One completed A2A turn.
+
+    `task_id` is the agent's own per-turn identifier and the only durable way to
+    say WHICH answer something refers to. `context_id` identifies the whole
+    conversation, so it cannot attribute anything to a single turn — the
+    distinction matters for feedback, billing disputes, and any after-the-fact
+    analysis. It is free to capture at request time and impossible to
+    reconstruct later, so it is captured whether or not anything consumes it yet.
+    """
+
+    text: str
+    context_id: str | None
+    state: str
+    task_id: str | None = None
+
+
 # States that carry text meant for the user. `input-required` is a legitimate
 # question back to them, so it renders like any other answer.
 TERMINAL_OK_STATES = {"completed", "input-required"}
 FAILED_STATES = {"failed", "rejected", "canceled", "cancelled", "unknown"}
 
 
-def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> tuple[str, str | None, str]:
-    """Turn an A2A `message/send` response into (text, context_id, state).
+def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> TaskResult:
+    """Turn an A2A `message/send` response into a TaskResult.
 
     The payload lives in `result.artifacts[].parts[].text`, NOT `result.message`
     — a distinction that cost us a round of debugging when first verified.
@@ -93,6 +112,7 @@ def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> tupl
         raise A2AProtocolError("response has no result object", payload=response)
 
     context_id = result.get("contextId")
+    task_id = result.get("id")
     state = (result.get("status") or {}).get("state", "unknown")
 
     chunks: list[str] = []
@@ -106,7 +126,7 @@ def parse_task(response: dict[str, Any], *, artifact_join: str = "\n\n") -> tupl
     if not text and state in FAILED_STATES:
         raise A2AProtocolError(f"agent returned state {state!r} with no text", state=state, payload=result)
 
-    return text, context_id, state
+    return TaskResult(text=text, context_id=context_id, state=state, task_id=task_id)
 
 
 def chat_completion(text: str, *, model: str, completion_id: str | None = None) -> dict[str, Any]:
