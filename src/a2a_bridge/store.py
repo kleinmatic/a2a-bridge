@@ -16,6 +16,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from abc import ABC, abstractmethod
+from typing import ClassVar
 from urllib.parse import urlparse
 
 
@@ -104,7 +105,26 @@ class SqliteStore(ContextStore):
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS turns_convo ON turns (agent_id, conversation_id, seq)"
             )
+            self._migrate()
             self._conn.commit()
+
+    # Columns added after the first release. CREATE TABLE IF NOT EXISTS is a no-op
+    # on an existing table, so a store that predates a column would silently keep
+    # writing without it — and this volume outlives container rebuilds by design,
+    # precisely so sessions survive. Additive only: never drop or rewrite, since
+    # the data here cannot be reconstructed from anywhere else.
+    _ADDED_COLUMNS: ClassVar[dict[str, dict[str, str]]] = {
+        "turns": {"request_message_id": "TEXT"},
+    }
+
+    def _migrate(self) -> None:
+        for table, columns in self._ADDED_COLUMNS.items():
+            existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if not existing:
+                continue
+            for name, decl in columns.items():
+                if name not in existing:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
     def record_turn(self, agent_id, conversation_id, context_id, task_id, completed_at,
                     request_message_id=None) -> None:
