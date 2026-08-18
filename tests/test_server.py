@@ -26,6 +26,7 @@ agents:
   - id: publisher
     card_url: {AGENT_URL}
     conversation_id_header: X-Conversation-Id
+    message_id_header: X-Message-Id
     caller:
       id_header: X-Caller-Id
       auth_header: X-Caller-Auth
@@ -215,14 +216,18 @@ def test_turn_is_recorded_with_the_agents_task_id(client):
         })
     )
     client.post("/v1/chat/completions",
-                headers={"X-Conversation-Id": "conv-t"},
+                headers={"X-Conversation-Id": "conv-t", "X-Message-Id": "usermsg-9"},
                 json={"model": "publisher", "messages": [{"role": "user", "content": "hi"}]})
 
     turns = server_mod.STATE["store"]._turns
     assert len(turns) == 1
-    agent_id, conversation_id, context_id, task_id, completed_at = turns[0]
+    agent_id, conversation_id, context_id, task_id, completed_at, req_msg_id = turns[0]
     assert (agent_id, conversation_id, context_id, task_id) == ("publisher", "conv-t", "ctx-1", "task-abc-123")
     assert completed_at.endswith("+00:00"), "timestamp must carry an offset, not be naive"
+    # The inbound message id is what later resolves to the REPLY, and from there
+    # to anything attached to it. Ordinal or timestamp matching would break on an
+    # edit or a regeneration; this does not.
+    assert req_msg_id == "usermsg-9"
 
 
 def test_a_store_failure_never_costs_the_user_their_answer(client, monkeypatch):

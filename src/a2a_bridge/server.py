@@ -159,6 +159,11 @@ async def chat_completions(request: Request, _: None = Depends(require_api_key))
         store.record_turn(
             model, conversation_id, new_context_id, result.task_id,
             datetime.now(UTC).isoformat(),
+            request_message_id=(
+                request.headers.get(agent_cfg.message_id_header)
+                if agent_cfg.message_id_header
+                else None
+            ),
         )
     except Exception:
         log.exception("agent %s: failed to record turn (answer unaffected)", model)
