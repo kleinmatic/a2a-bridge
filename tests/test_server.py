@@ -194,3 +194,47 @@ def test_gate_text_passes_through_verbatim(client):
                     headers={"X-Conversation-Id": "conv-g"},
                     json={"model": "publisher", "messages": [{"role": "user", "content": "hi"}]})
     assert r.json()["choices"][0]["message"]["content"] == gate
+
+
+def test_turn_is_recorded_with_the_agents_task_id(client):
+    """The agent's per-turn id must be persisted at request time.
+
+    contextId identifies the conversation; only taskId identifies the individual
+    answer. It is emitted once and cannot be reconstructed later, so failing to
+    store it makes any after-the-fact question about a specific reply —
+    feedback, billing, audit — permanently unanswerable.
+    """
+    client.respx.post(AGENT_URL).mock(
+        return_value=httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": "1",
+            "result": {
+                "kind": "task", "id": "task-abc-123", "contextId": "ctx-1",
+                "status": {"state": "completed"},
+                "artifacts": [{"parts": [{"kind": "text", "text": "answer"}]}],
+            },
+        })
+    )
+    client.post("/v1/chat/completions",
+                headers={"X-Conversation-Id": "conv-t"},
+                json={"model": "publisher", "messages": [{"role": "user", "content": "hi"}]})
+
+    turns = server_mod.STATE["store"]._turns
+    assert len(turns) == 1
+    agent_id, conversation_id, context_id, task_id, completed_at = turns[0]
+    assert (agent_id, conversation_id, context_id, task_id) == ("publisher", "conv-t", "ctx-1", "task-abc-123")
+    assert completed_at.endswith("+00:00"), "timestamp must carry an offset, not be naive"
+
+
+def test_a_store_failure_never_costs_the_user_their_answer(client, monkeypatch):
+    """Recording is bookkeeping; the answer is what was paid for."""
+    def boom(*a, **k):
+        raise RuntimeError("disk on fire")
+    monkeypatch.setattr(server_mod.STATE["store"], "record_turn", boom)
+    client.respx.post(AGENT_URL).mock(
+        return_value=httpx.Response(200, json=a2a_task("still fine", context_id="ctx-1"))
+    )
+    r = client.post("/v1/chat/completions",
+                    headers={"X-Conversation-Id": "conv-f"},
+                    json={"model": "publisher", "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200
+    assert r.json()["choices"][0]["message"]["content"] == "still fine"

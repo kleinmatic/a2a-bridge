@@ -91,7 +91,7 @@ def test_text_comes_from_artifacts_not_message():
     """`result.message` is not where the payload lives, despite the name."""
     resp = task()
     resp["result"]["message"] = {"parts": [{"kind": "text", "text": "DECOY"}]}
-    text, ctx, state = parse_task(resp)
+    r = parse_task(resp); text, ctx, state = r.text, r.context_id, r.state
     assert text == "hello"
     assert ctx == "ctx-1"
     assert state == "completed"
@@ -102,7 +102,7 @@ def test_multiple_artifacts_and_parts_join_in_order():
         {"parts": [{"kind": "text", "text": "one"}, {"kind": "data", "data": {}}]},
         {"parts": [{"kind": "text", "text": "two"}]},
     ])
-    text, _, _ = parse_task(resp, artifact_join="\n\n")
+    text = parse_task(resp, artifact_join="\n\n").text
     assert text == "one\n\ntwo"
 
 
@@ -110,7 +110,7 @@ def test_gate_response_is_an_ordinary_completed_task():
     """A paywall or regwall arrives as terminal `completed` text, not
     `input-required` — so it needs no special handling anywhere."""
     resp = task(artifacts=[{"parts": [{"kind": "text", "text": "Subscribe to continue."}]}])
-    text, _, state = parse_task(resp)
+    r = parse_task(resp); text, state = r.text, r.state
     assert state == "completed"
     assert "Subscribe" in text
 
@@ -118,7 +118,7 @@ def test_gate_response_is_an_ordinary_completed_task():
 def test_input_required_still_renders_its_text():
     resp = task(state="input-required",
                 artifacts=[{"parts": [{"kind": "text", "text": "Which school?"}]}])
-    text, _, state = parse_task(resp)
+    r = parse_task(resp); text, state = r.text, r.state
     assert text == "Which school?"
     assert state == "input-required"
 
@@ -178,7 +178,7 @@ def test_recorded_fixtures_parse(path: Path):
         with pytest.raises(A2AProtocolError):
             parse_task(data)
         return
-    text, context_id, state = parse_task(data)
+    r = parse_task(data); text, context_id, state = r.text, r.context_id, r.state
     assert context_id, f"{path.name}: no contextId to persist"
     assert state, f"{path.name}: no task state"
     if state not in {"failed", "rejected", "canceled"}:

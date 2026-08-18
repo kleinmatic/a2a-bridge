@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -125,9 +126,7 @@ async def chat_completions(request: Request, _: None = Depends(require_api_key))
     context_id = store.get(model, conversation_id)
 
     try:
-        reply, new_context_id, state = await client.send(
-            text, context_id=context_id, caller_id=caller_id
-        )
+        result = await client.send(text, context_id=context_id, caller_id=caller_id)
     except RateLimited as exc:
         # Surfaced, never retried away: a throttled request is information the
         # operator wants, and a silent retry loop turns one visible failure into
@@ -145,13 +144,28 @@ async def chat_completions(request: Request, _: None = Depends(require_api_key))
         log.exception("agent %s: call failed", model)
         return _error_response(agent_cfg, model, f"The agent is unreachable ({exc}).", status=502)
 
+    reply, new_context_id, state = result.text, result.context_id, result.state
+
     # Remember whatever the server minted. It owns the value; we only echo it.
     if new_context_id and new_context_id != context_id:
         store.put(model, conversation_id, new_context_id)
 
+    # Record the turn. The agent's per-turn id is emitted once and cannot be
+    # recovered afterwards, so it is captured even though nothing reads it yet:
+    # without it, "which answer was this about?" is unanswerable for feedback,
+    # billing questions or any later audit. Best-effort — a storage failure must
+    # never cost the user an answer they already paid for.
+    try:
+        store.record_turn(
+            model, conversation_id, new_context_id, result.task_id,
+            datetime.now(UTC).isoformat(),
+        )
+    except Exception:
+        log.exception("agent %s: failed to record turn (answer unaffected)", model)
+
     log.info(
-        "agent=%s conversation=%s context=%s state=%s chars=%d",
-        model, conversation_id, new_context_id, state, len(reply),
+        "agent=%s conversation=%s context=%s task=%s state=%s chars=%d",
+        model, conversation_id, new_context_id, result.task_id, state, len(reply),
     )
 
     if body.get("stream"):

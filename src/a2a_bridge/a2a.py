@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from .config import AgentConfig
-from .mapping import build_message_send, parse_task
+from .mapping import TaskResult, build_message_send, parse_task
 
 log = logging.getLogger("a2a_bridge.a2a")
 
@@ -114,7 +114,7 @@ class A2AClient:
         *,
         context_id: str | None,
         caller_id: str | None = None,
-    ) -> tuple[str, str | None, str]:
+    ) -> TaskResult:
         headers = {"Content-Type": "application/json", **self.agent.static_headers}
         headers.update(self.agent.caller.headers_for(caller_id))
 
