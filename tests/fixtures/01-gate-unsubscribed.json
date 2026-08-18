@@ -1,0 +1,39 @@
+{
+  "id": "demo-1",
+  "jsonrpc": "2.0",
+  "result": {
+    "artifacts": [
+      {
+        "artifactId": "4e41b32e-a532-48ad-9db1-84433f6d5f05",
+        "name": "result",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "[THE RIDGELINE GAZETTE]\n\nSubscriber-only briefing. You need an active Ridgeline Gazette subscription to read this.\n\nTwo ways to subscribe:\n\n1. On our website: https://gazette.example.com/subscribe/<one-time-ticket>\n2. Authorize a $24/year charge right here \u2014 just say \"authorize\" and you're in."
+          }
+        ]
+      }
+    ],
+    "contextId": "400505af-b5f6-46b7-b7a8-b3e45a93fe79",
+    "history": [
+      {
+        "contextId": "400505af-b5f6-46b7-b7a8-b3e45a93fe79",
+        "kind": "message",
+        "messageId": "m-demo-1",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "What are the best elementary schools in Fairmont?"
+          }
+        ],
+        "role": "user",
+        "taskId": "85a2136e-2f1e-4e07-80fa-bd4ec778afae"
+      }
+    ],
+    "id": "85a2136e-2f1e-4e07-80fa-bd4ec778afae",
+    "kind": "task",
+    "status": {
+      "state": "completed"
+    }
+  }
+}

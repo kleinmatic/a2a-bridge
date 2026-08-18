@@ -1,0 +1,39 @@
+{
+  "id": "demo-2",
+  "jsonrpc": "2.0",
+  "result": {
+    "artifacts": [
+      {
+        "artifactId": "31744fd1-6064-481b-9432-623be85923c1",
+        "name": "result",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "[RIDGELINE GAZETTE SUBSCRIPTIONS]\n\nCharged $24.00 to your card on file. Your annual Ridgeline Gazette subscription is active. Full access to Ridgeline school data and tour booking is unlocked.\n\n[THE RIDGELINE GAZETTE]\n\nHere is a rundown of the eight elementary schools in the Fairmont district, ranked by state proficiency scores. All figures are the latest available year.\n\n---\n\nTOP PERFORMERS IN THE NEIGHBORHOOD\n\nCedar Street Elementary (RG-039)\n- ELA proficiency: 92% -- ranks 10th among all Ridgeline elementary schools\n- Math proficiency: 94% -- ranks 8th in Ridgeline\n\nFox Hollow Elementary (RG-107)\n- ELA proficiency: 91% -- ranks 12th in Ridgeline\n- Math proficiency: 93% -- ranks 10th in Ridgeline\n\nNorthgate Elementary (RG-321)\n- ELA proficiency: 89% -- ranks 14th in Ridgeline\n- Math proficiency: 91% -- ranks 13th in Ridgeline\n- Also the largest school in the neighborhood at 1,309 students -- a well-known and highly sought-after school\n\n---\n\nSTRONG MID-TIER OPTIONS\n\nRidgeline Magnet School of Math and Design (RG-010)\n- ELA proficiency: 87%\n- Math proficiency: 84%\n- Largest enrollment after Northgate at 844 students; focuses on STEM\n\nWillow Creek Community School (RG-118)\n- ELA proficiency: 82%\n- Math proficiency: 83%\n- Smaller school at 202 students\n\nBell Avenue Elementary (RG-133)\n- ELA proficiency: 75%\n- Math proficiency: 72%\n\nFairmont Elementary (RG-282)\n- ELA proficiency: 71%\n- Math proficiency: 75%\n\nOld Mill Elementary (RG-124)\n- Proficiency data not in the Ridgeline-wide top 100 for either metric\n\n---\n\nSUMMARY\n\nThe standouts by test performance are Cedar Street, Fox Hollow, and Northgate -- all ranking in the top 15 among Ridgeline elementary schools on both ELA and math. Note that zoning determines which of these your child is eligible for; if you share your address I can tell you which school's zone you fall in.\n\nWould you like to book a tour at any of these schools, or would you like deeper data on a specific one -- such as attendance, class size, or chronic absenteeism?"
+          }
+        ]
+      }
+    ],
+    "contextId": "400505af-b5f6-46b7-b7a8-b3e45a93fe79",
+    "history": [
+      {
+        "contextId": "400505af-b5f6-46b7-b7a8-b3e45a93fe79",
+        "kind": "message",
+        "messageId": "m-demo-2",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "authorize"
+          }
+        ],
+        "role": "user",
+        "taskId": "6ae6823d-4d43-4299-8e12-08894ee8a97c"
+      }
+    ],
+    "id": "6ae6823d-4d43-4299-8e12-08894ee8a97c",
+    "kind": "task",
+    "status": {
+      "state": "completed"
+    }
+  }
+}

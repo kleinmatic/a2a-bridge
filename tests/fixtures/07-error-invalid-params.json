@@ -1,0 +1,36 @@
+{
+  "error": {
+    "code": -32602,
+    "data": [
+      {
+        "input": {
+          "role": "user"
+        },
+        "loc": [
+          "params",
+          "message",
+          "messageId"
+        ],
+        "msg": "Field required",
+        "type": "missing",
+        "url": "https://errors.pydantic.dev/2.13/v/missing"
+      },
+      {
+        "input": {
+          "role": "user"
+        },
+        "loc": [
+          "params",
+          "message",
+          "parts"
+        ],
+        "msg": "Field required",
+        "type": "missing",
+        "url": "https://errors.pydantic.dev/2.13/v/missing"
+      }
+    ],
+    "message": "Invalid parameters"
+  },
+  "id": "fixture-err-2",
+  "jsonrpc": "2.0"
+}
