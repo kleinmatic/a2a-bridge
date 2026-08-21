@@ -1,0 +1,57 @@
+# LibreChat configuration for one A2A agent reached through a2a-bridge.
+#
+# Replace `myagent` / "My Agent" throughout with your own agent's id and display
+# name. The id must match the `id` in agents.yml, which is also the model name.
+
+version: 1.3.9
+cache: false
+
+interface:
+  artifacts: true
+  # Required once `modelSpecs` exists, and very easy to miss. LibreChat applies
+  # interface defaults at the OBJECT level, so declaring `interface:` at all
+  # leaves modelSelect undefined — which hides every model except your specs.
+  modelSelect: true
+
+endpoints:
+  custom:
+    - name: "My Agent"                          # referenced by modelSpecs below
+      apiKey: "${A2A_BRIDGE_API_KEY}"
+      baseURL: "http://a2a-bridge:8600/v1"      # compose service name
+      models:
+        default: ["myagent"]                    # must match the agent id
+        fetch: false
+      headers:
+        # This is what makes multi-turn work. The bridge maps the conversation
+        # id to the agent's contextId; without it, it falls back to hashing the
+        # first user message and the session breaks the moment anyone edits or
+        # regenerates that message.
+        X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
+        # Optional. Lets a rating or cost note on a reply be traced back to the
+        # exact agent turn that produced it — not reconstructable afterwards.
+        X-Message-Id: "{{LIBRECHAT_BODY_MESSAGEID}}"
+      # Off deliberately. With titles on, every new conversation fires an extra
+      # "summarize this" request into your agent: real traffic, real spend, and a
+      # topical guard may refuse it and leave a junk title. Turn it on only by
+      # pointing `titleEndpoint` at some other, cheaper endpoint you run.
+      titleConvo: false
+      # Required: A2A carries no token counts, so the bridge reports zero and
+      # LibreChat's own default is small enough to silently truncate.
+      maxContextTokens: 200000
+      modelDisplayLabel: "My Agent"
+
+# modelSpecs is what gives a one-step `@myagent` mention. An endpoint mention is
+# two-step, and a LibreChat `agents` record would wrap your agent in another
+# model that paraphrases its output.
+modelSpecs:
+  enforce: false
+  # Defaults to TRUE upstream, which would make this spec the default selection
+  # for every new chat.
+  prioritize: false
+  list:
+    - name: myagent                # what you type after @
+      label: "My Agent"
+      description: "An A2A agent, reached over a2a-bridge."
+      preset:
+        endpoint: "My Agent"       # must match the custom endpoint `name`
+        model: myagent
