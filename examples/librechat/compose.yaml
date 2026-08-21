@@ -1,0 +1,81 @@
+# LibreChat + a2a-bridge, self-contained.
+#
+# Trimmed on purpose. Upstream LibreChat's compose also brings Meilisearch,
+# pgvector and a RAG API; none of them are involved in talking to an A2A agent,
+# and each is one more thing that can fail during a demo. Search is off in
+# env.example to match.
+#
+# Run it from the repo root with `make demo-up`.
+
+name: a2a-bridge-demo
+
+services:
+  a2a-bridge:
+    build:
+      context: ../..
+    container_name: a2a-bridge
+    restart: unless-stopped
+    environment:
+      - A2A_BRIDGE_CONFIG=/app/agents.yml
+      - A2A_BRIDGE_PORT=8600
+      # Must match `apiKey` in librechat.yaml. Any string; it only stops other
+      # things on the host from using the bridge.
+      - A2A_BRIDGE_API_KEYS=${A2A_BRIDGE_API_KEY:-demo-key}
+      - A2A_BRIDGE_LOG_LEVEL=${A2A_BRIDGE_LOG_LEVEL:-INFO}
+    volumes:
+      - ./agents.yml:/app/agents.yml:ro
+      # Holds conversation id -> A2A contextId. Agents bind session state to
+      # contextId, so losing this volume sends every user back to the start —
+      # including through any gate or paywall they had already passed.
+      - a2a_bridge_data:/data
+    # Lets card_url reach an agent running on the host rather than in Docker.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Published so you can curl the bridge directly while debugging. LibreChat
+    # itself reaches it over the compose network as http://a2a-bridge:8600.
+    ports:
+      - "8600:8600"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8600/healthz').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  api:
+    image: registry.librechat.ai/danny-avila/librechat:v0.8.7
+    container_name: a2a-demo-librechat
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - a2a-bridge
+    ports:
+      - "${PORT:-3080}:${PORT:-3080}"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+    volumes:
+      # Read once at startup. `make demo-restart` after editing it.
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - librechat_images:/app/client/public/images
+      - librechat_uploads:/app/uploads
+      - librechat_logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mongodb:
+    image: mongo:8.0.17
+    container_name: a2a-demo-mongodb
+    restart: unless-stopped
+    command: mongod --noauth
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  a2a_bridge_data:
+  mongo_data:
+  librechat_images:
+  librechat_uploads:
+  librechat_logs:
