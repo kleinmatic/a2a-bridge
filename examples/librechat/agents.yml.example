@@ -1,0 +1,31 @@
+# Bridge configuration for the LibreChat example stack.
+# `make demo-config` copies this to agents.yml, which is gitignored.
+#
+# The only line you must change is card_url.
+
+store: "sqlite:///data/context.db"
+api_keys_env: A2A_BRIDGE_API_KEYS
+
+agents:
+  - id: myagent
+    # Your agent's card, or the endpoint itself. Note the trailing slash: many
+    # A2A servers 307-redirect the unslashed form and a POST body does not
+    # survive the redirect.
+    #
+    # An agent running on your own machine (not in Docker) is reachable at
+    # host.docker.internal, NOT localhost — localhost inside the container is
+    # the container.
+    card_url: http://host.docker.internal:8081/api/publisher/
+
+    # Header names must match the ones set in librechat.yaml.
+    conversation_id_header: X-Conversation-Id
+    message_id_header: X-Message-Id
+
+    # "auto" uses the agent's streaming method when its card advertises one, so
+    # its working-state notes reach the user while they wait rather than leaving
+    # a blank pane. Streaming does not imply incremental text.
+    stream_mode: auto
+    show_progress: true
+
+    on_error: message
+    timeout_s: 120
