@@ -31,7 +31,7 @@ renders.
 ## Quickstart
 
 ```bash
-pip install -e .                       # or: pip install a2a-bridge
+pip install -e .                       # not on PyPI yet; install from a checkout
 cp examples/agents.example.yml agents.yml
 $EDITOR agents.yml                     # set card_url to your agent
 A2A_BRIDGE_CONFIG=agents.yml python -m a2a_bridge.server
@@ -220,8 +220,10 @@ Contract tests live in `tests/`. Recorded wire responses go in `tests/fixtures/`
 there. Recording rather than hand-writing them is the point: the tests should fail when a peer
 changes its wire shape, which only works if the fixtures came off the wire.
 
-The fixtures shipped here are from a live multi-agent publisher, including a paywall gate, a
-cross-agent handoff, both JSON-RPC error shapes, and streaming with progress notes.
+The fixtures shipped here came off the wire from a live multi-agent publisher, and cover a
+paywall gate, a cross-agent handoff, both JSON-RPC error shapes, and streaming with progress
+notes. The envelopes are untouched; the prose inside them was rewritten to a fictional
+publisher, so nothing here reproduces a real organization's copy.
 
 ---
 
