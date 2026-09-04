@@ -19,7 +19,7 @@ You need Docker, and an A2A agent that is already answering. Check the agent
 first — every minute spent debugging LibreChat against a broken agent is wasted:
 
 ```bash
-curl -s http://localhost:8081/api/publisher/.well-known/agent-card.json | head
+curl -s https://agent.example.org/.well-known/agent-card.json | head
 ```
 
 Substitute your own agent's URL. If that returns a card, continue.

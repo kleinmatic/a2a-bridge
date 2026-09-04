@@ -9,7 +9,7 @@
         "parts": [
           {
             "kind": "text",
-            "text": "[NYC SCHOOL TOURS]\n\nHere's what's available at **P.S. 321 William Penn** in the next two weeks:\n\n| Date | Day | Open Window |\n|------|-----|-------------|\n| Tue, Aug 18 | Tuesday | 11:00 AM \u2013 4:00 PM |\n| Tue, Aug 25 | Tuesday | 11:00 AM \u2013 4:00 PM |\n\n> **Note:** Wednesday slots (3:00\u20135:00 PM) are afternoons, so they fall outside your morning preference. The two Tuesdays above are your best morning options.\n\nWhich date works for you, and what start time would you like within the 11:00 AM \u2013 4:00 PM window?\n\n[THE DATA TRIBUNE]\n\nPlease pick a date and a start time from the available Tuesday slots above and I'll confirm the booking with our tour partner right away."
+            "text": "[RIDGELINE SCHOOL TOURS]\n\nHere's what's available at **Northgate Elementary** in the next two weeks:\n\n| Date | Day | Open Window |\n|------|-----|-------------|\n| Tue, Aug 18 | Tuesday | 11:00 AM \u2013 4:00 PM |\n| Tue, Aug 25 | Tuesday | 11:00 AM \u2013 4:00 PM |\n\n> **Note:** Wednesday slots (3:00\u20135:00 PM) are afternoons, so they fall outside your morning preference. The two Tuesdays above are your best morning options.\n\nWhich date works for you, and what start time would you like within the 11:00 AM \u2013 4:00 PM window?\n\n[THE RIDGELINE GAZETTE]\n\nPlease pick a date and a start time from the available Tuesday slots above and I'll confirm the booking with our tour partner right away."
           }
         ]
       }
@@ -23,7 +23,7 @@
         "parts": [
           {
             "kind": "text",
-            "text": "P.S. 321, weekday mornings in the next two weeks"
+            "text": "Northgate, weekday mornings in the next two weeks"
           }
         ],
         "role": "user",
