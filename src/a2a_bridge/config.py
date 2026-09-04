@@ -108,10 +108,12 @@ class AgentConfig:
     timeout_s: float = 120.0
 
     def __post_init__(self) -> None:
+        # No id prefix here: _agent_from adds the file and the agent, so every
+        # config error reads the same way regardless of where it was raised.
         if self.on_error not in {"message", "http_error"}:
-            raise ValueError(f"{self.id}: on_error must be 'message' or 'http_error'")
+            raise ValueError("on_error must be 'message' or 'http_error'")
         if self.stream_mode not in {"auto", "blocking"}:
-            raise ValueError(f"{self.id}: stream_mode must be 'auto' or 'blocking'")
+            raise ValueError("stream_mode must be 'auto' or 'blocking'")
 
 
 
@@ -128,10 +130,7 @@ def _agent_from(entry: dict, *, path: str | Path, index: int) -> AgentConfig:
     normal case while setting this up, so they get real messages.
     """
     if not isinstance(entry, dict):
-        # A bad YAML shape is a config mistake, not a programming type error.
-        # Every config problem here raises ValueError, so a caller has one
-        # exception type to catch.
-        raise ValueError(  # noqa: TRY004
+        raise ValueError(
             f"{path}: agents[{index}] should be a block of settings, not {entry!r}"
         )
 
@@ -141,20 +140,24 @@ def _agent_from(entry: dict, *, path: str | Path, index: int) -> AgentConfig:
 
     # Copy: callers keep their parsed YAML, and re-loading stays repeatable.
     entry = dict(entry)
-    caller_block = entry.pop("caller", None) or {}
+    caller_block = entry.pop("caller", None)
+    if caller_block is None:
+        caller_block = {}
     if not isinstance(caller_block, dict):
-        raise ValueError(  # noqa: TRY004
+        raise ValueError(
             f"{path}: {where}: 'caller' should be a block, not {caller_block!r}"
         )
 
-    unknown = sorted(set(caller_block) - _CALLER_FIELDS)
+    # str(): YAML 1.1 turns bare `on:`/`yes:` into bool keys, and sorting or
+    # joining a mixed str/bool set raises the very TypeError this replaces.
+    unknown = sorted(str(k) for k in set(caller_block) - _CALLER_FIELDS)
     if unknown:
         raise ValueError(
             f"{path}: {where}: unknown option{'s' if len(unknown) > 1 else ''} under 'caller': "
             f"{', '.join(unknown)}. Valid: {', '.join(sorted(_CALLER_FIELDS))}"
         )
 
-    unknown = sorted(set(entry) - _AGENT_FIELDS)
+    unknown = sorted(str(k) for k in set(entry) - _AGENT_FIELDS)
     if unknown:
         raise ValueError(
             f"{path}: {where}: unknown option{'s' if len(unknown) > 1 else ''}: "
@@ -165,7 +168,32 @@ def _agent_from(entry: dict, *, path: str | Path, index: int) -> AgentConfig:
         if not entry.get(required):
             raise ValueError(f"{path}: {where}: '{required}' is required")
 
-    return AgentConfig(caller=CallerAuth(**caller_block), **entry)
+    try:
+        return AgentConfig(caller=CallerAuth(**caller_block), **entry)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path}: {where}: {exc}") from exc
+
+
+
+_TOP_LEVEL_KEYS = {"agents", "store", "api_keys", "api_keys_env"}
+
+
+def _clean_keys(values: object, *, source: str, path: str | Path) -> list[str]:
+    """Normalise a list of API keys, dropping blanks.
+
+    An empty entry is not a key. One used to reach `api_keys` intact, where it
+    matched the empty token of a request carrying no Authorization header at
+    all: the bridge answered, and the startup warning stayed quiet because the
+    list looked populated. `api_keys: ["${MY_KEY}"]` with the variable unset
+    renders exactly that.
+    """
+    if values is None:
+        return []
+    if isinstance(values, str):
+        values = values.split(",")
+    if not isinstance(values, (list, tuple)):
+        raise ValueError(f"{path}: {source} should be a list of keys, not {values!r}")
+    return [str(v).strip() for v in values if str(v).strip()]
 
 
 @dataclass
@@ -178,17 +206,33 @@ class BridgeConfig:
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> BridgeConfig:
         raw = yaml.safe_load(Path(path).read_text()) or {}
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path}: the file should be a block of settings")
+
+        # A typo at the top level used to be ignored in silence. `api_key_env:`
+        # loads a bridge with no keys at all, which is the one mistake here
+        # nobody notices until it matters.
+        unknown = sorted(str(k) for k in set(raw) - _TOP_LEVEL_KEYS)
+        if unknown:
+            raise ValueError(
+                f"{path}: unknown top-level option{'s' if len(unknown) > 1 else ''}: "
+                f"{', '.join(unknown)}. Valid: {', '.join(sorted(_TOP_LEVEL_KEYS))}"
+            )
+
         agents: dict[str, AgentConfig] = {}
         for i, entry in enumerate(raw.get("agents") or []):
-            agents_ = _agent_from(entry, path=path, index=i)
-            agents[agents_.id] = agents_
+            agent = _agent_from(entry, path=path, index=i)
+            if agent.id in agents:
+                raise ValueError(f"{path}: two agents share the id {agent.id!r}")
+            agents[agent.id] = agent
         if not agents:
             raise ValueError(f"{path}: no agents configured")
 
         keys_env = raw.get("api_keys_env")
-        api_keys = raw.get("api_keys") or []
-        if keys_env and os.environ.get(keys_env):
-            api_keys = [k.strip() for k in os.environ[keys_env].split(",") if k.strip()]
+        api_keys = _clean_keys(raw.get("api_keys"), source="api_keys", path=path)
+        env_value = os.environ.get(keys_env) if keys_env else None
+        if env_value:
+            api_keys = _clean_keys(env_value, source=f"${keys_env}", path=path)
 
         return cls(
             agents=agents,

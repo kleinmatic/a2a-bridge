@@ -2,9 +2,14 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .config import AgentConfig, BridgeConfig, CallerAuth
+from .mapping import A2AProtocolError
+
 try:
     __version__ = version("a2a-bridge")
-except PackageNotFoundError:  # running from a source tree that was never installed
+except PackageNotFoundError:  # a source tree that was never installed
     __version__ = "0+unknown"
 
-__all__ = ["__version__"]
+# These four are the embedding surface: anyone driving the bridge from their own
+# process imports them from here. They predate __version__ and must keep working.
+__all__ = ["A2AProtocolError", "AgentConfig", "BridgeConfig", "CallerAuth", "__version__"]

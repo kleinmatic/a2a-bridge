@@ -23,9 +23,9 @@ endpoints:
         fetch: false
       headers:
         # This is what makes multi-turn work. The bridge maps the conversation
-        # id to the agent's contextId; without it, it falls back to hashing the
-        # first user message and the session breaks the moment anyone edits or
-        # regenerates that message.
+        # id to the agent's contextId. Without it, the bridge falls back to
+        # hashing the newest message. That hash changes every turn, so the
+        # agent sees each turn as a new conversation and remembers nothing.
         X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
         # Optional. Lets a rating or cost note on a reply be traced back to the
         # exact agent turn that produced it — not reconstructable afterwards.
