@@ -229,6 +229,21 @@ publisher, so nothing here reproduces a real organization's copy.
 
 ---
 
+### Releasing
+
+**The git tag is the version.** There is no number to edit in any file.
+
+1. Pick the number. Semver, still `0.x`: bump the **middle** for a breaking
+   change or a new feature, the **last** for a fix. `0.1.0` → `0.2.0` → `0.2.1`.
+2. Publish a GitHub Release tagged `vX.Y.Z`.
+
+The release workflow does the rest: builds, runs the tests, refuses to continue
+if the built version and the tag disagree, and uploads to PyPI over OIDC. There
+is no PyPI token anywhere in the repo or in anyone's shell.
+
+Going to `1.0.0` is a promise that `agents.yml` and the caller headers have
+stopped moving. Not yet.
+
 ## Status
 
 Early, and deliberately small. Blocking `message/send`, optional `message/stream`, card discovery,

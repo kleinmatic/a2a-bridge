@@ -9,7 +9,6 @@ name: Release
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,6 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # setuptools-scm derives the version from tags; a shallow clone has
+          # none, and would silently build 0.1.dev1 instead of the release.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -29,6 +32,12 @@ jobs:
       - run: pip install build
       - run: python -m build
       - run: pip install twine && twine check dist/*
+      - name: Built version must match the release tag
+        run: |
+          built=$(ls dist/*.tar.gz | sed -E 's/.*a2a_bridge-(.*)\.tar\.gz/\1/')
+          tag=${GITHUB_REF_NAME#v}
+          echo "built=$built tag=$tag"
+          test "$built" = "$tag" || { echo "::error::built $built but tag is $tag"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: dist
