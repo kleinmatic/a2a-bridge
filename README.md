@@ -33,7 +33,7 @@ renders.
 ## Quickstart
 
 ```bash
-pip install -e .                       # not on PyPI yet; install from a checkout
+pip install a2a-bridge                 # or from a checkout: pip install -e .
 cp examples/agents.example.yml agents.yml
 $EDITOR agents.yml                     # set card_url to your agent
 A2A_BRIDGE_CONFIG=agents.yml python -m a2a_bridge.server
