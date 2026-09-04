@@ -28,6 +28,9 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "respx>=0.21", "ruff>=0.6"]
 
 [project.urls]
 Homepage = "https://github.com/kleinmatic/a2a-bridge"
+Repository = "https://github.com/kleinmatic/a2a-bridge"
+Issues = "https://github.com/kleinmatic/a2a-bridge/issues"
+Changelog = "https://github.com/kleinmatic/a2a-bridge/releases"
 
 [build-system]
 requires = ["setuptools>=68", "setuptools-scm>=8"]
