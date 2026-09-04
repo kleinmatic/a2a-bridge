@@ -5,8 +5,9 @@ tests. Recording them rather than hand-writing them is the point: the mapping
 tests should fail when a peer changes its wire shape, which only works if the
 fixtures came off the wire.
 
-To add one: capture the full JSON-RPC response body, redact anything sensitive
-(ids may be rewritten as long as they stay internally consistent), and save it as
+To add one: capture the full JSON-RPC response body, replace any identifying
+names in the message text, redact anything sensitive (ids may be rewritten as
+long as they stay internally consistent), and save it as
 `<agent>-<scenario>.json`.
 
 Wanted:
@@ -16,13 +17,20 @@ Wanted:
 
 ## Provenance
 
-`01`–`07` were captured by the Ridgeline Gazette side on 2026-08-17 against their local
-stack (web door on `:8081`) and copied from
-`the publisher's own fixtures directory`. Subscribe tickets are sanitized; no bearer
-tokens appear in any capture.
+`01`–`08` came off the wire from a live multi-agent publisher on 2026-08-17.
 
-They are illustrative, not golden — model wording varies run to run. Assert on the
-envelope: task state, artifact structure, `[LABEL]` blocks, and error shapes.
+**The envelopes are unedited.** Task state, artifact and part structure, the
+streaming frame sequence and the error objects are exactly as received. That is
+what the tests assert on, and the only part of a fixture you should trust.
+
+**The message text was rewritten.** Every publisher, place and institution named
+in the prose is invented — the Ridgeline Gazette and its partner agents do not
+exist — so nothing here reproduces a real organization's copy. Ids stay
+internally consistent, subscribe tickets are sanitized, and no bearer token
+appears in any capture.
+
+They are illustrative, not golden: model wording varies run to run. Assert on the
+envelope — task state, artifact structure, `[LABEL]` blocks, and error shapes.
 
 Two shapes worth noting, because they are easy to conflate:
 
