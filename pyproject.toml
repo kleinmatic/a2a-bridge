@@ -1,6 +1,9 @@
 [project]
 name = "a2a-bridge"
-version = "0.1.0"
+# The version comes from the git tag (see [tool.setuptools_scm]).
+# There is no version number to edit in this file, and therefore none to
+# forget to edit.
+dynamic = ["version"]
 description = "Connect LibreChat, or any OpenAI-compatible chat client, to any A2A agent."
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,7 +30,7 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "respx>=0.21", "ruff>=0.6"]
 Homepage = "https://github.com/kleinmatic/a2a-bridge"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -35,3 +38,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.setuptools_scm]
+# Tag "v0.2.0" builds version 0.2.0. Building from an untagged commit yields a
+# .dev version, which PyPI rejects -- deliberately: only a tag ships.
