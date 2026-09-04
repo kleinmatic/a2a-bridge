@@ -73,18 +73,36 @@ user starts over — including losing whatever the agent had decided about them.
 
 ## Configure
 
-```yaml
-store: "sqlite:///data/context.db"     # memory:// | sqlite:///path | mongodb://...
-api_keys_env: A2A_BRIDGE_API_KEYS      # comma-separated; omit to leave the bridge open
+A working config is two lines:
 
+```yaml
 agents:
   - id: myagent                                    # becomes the model name
+    card_url: https://agent.example.org/api/agent/
+```
+
+The bridge reads the rest from the agent card — the JSON-RPC endpoint, the protocol version,
+whether the agent can stream.
+
+Two settings you will want early:
+
+```yaml
+store: "sqlite:///data/context.db"     # memory:// | sqlite:///path | mongodb://...
+api_keys_env: A2A_BRIDGE_API_KEYS      # the NAME of an env var holding comma-separated keys
+
+agents:
+  - id: myagent
     card_url: https://agent.example.org/api/agent/
     conversation_id_header: X-Conversation-Id      # see "Sessions" below
 ```
 
-Everything else — the JSON-RPC endpoint, protocol version, streaming support — is read from the
-agent card. See [`examples/agents.example.yml`](examples/agents.example.yml) for every option.
+`store` decides whether conversations survive a restart. `api_keys_env` names an environment
+variable rather than holding the keys, so no secret is written in the file — and if you leave it
+out, or name a variable nobody exported, the bridge answers anyone who can reach the port and
+says so in the log at startup.
+
+Every option, each with the reason to set it, is in
+[`examples/agents.example.yml`](examples/agents.example.yml).
 
 | Route | Purpose |
 |---|---|

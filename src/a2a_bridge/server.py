@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from . import __version__
 from .a2a import A2AClient, PayloadTooLarge, RateLimited
 from .config import BridgeConfig
 from .mapping import (
@@ -34,6 +35,16 @@ async def lifespan(app: FastAPI):
     STATE["store"] = build_store(cfg.store_url)
     STATE["clients"] = {aid: A2AClient(agent) for aid, agent in cfg.agents.items()}
 
+    # No keys means anyone who can reach the port can spend the agent's tokens.
+    # Fine on a laptop, rarely what someone wants on a server, and until now it
+    # happened in silence -- including when `api_keys_env` names a variable that
+    # was never exported, which looks configured and is not.
+    if not cfg.api_keys:
+        log.warning(
+            "no api_keys configured: the bridge is open to anyone who can reach it. "
+            "Set api_keys in the config, or api_keys_env naming an exported variable."
+        )
+
     # Fetch cards at startup for a fast failure and a legible log line, but do
     # not die on it: an agent that is briefly unreachable should not stop the
     # bridge from serving the others, and a conference network is not a reason
@@ -52,7 +63,7 @@ async def lifespan(app: FastAPI):
         STATE["store"].close()
 
 
-app = FastAPI(title="a2a-bridge", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="a2a-bridge", version=__version__, lifespan=lifespan)
 
 
 def require_api_key(authorization: str | None = Header(default=None)) -> None:

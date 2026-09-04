@@ -1,53 +1,85 @@
-# a2a-bridge configuration. One block per A2A agent; each `id` becomes a model
-# name your chat client can select. Adding an agent needs no code change.
+# a2a-bridge configuration.
+#
+# One block per agent. Each `id` becomes a model name your chat client can
+# pick. Adding an agent needs no code change.
+#
+# A complete, working file is two lines:
+#
+#   agents:
+#     - id: myagent
+#       card_url: https://agent.example.org/api/agent/
+#
+# Everything else is optional. The bridge reads the endpoint, the protocol
+# version and whether the agent can stream from the agent card itself.
 
-store: "sqlite:///data/context.db"   # memory:// | sqlite:///path | mongodb://...
-api_keys_env: A2A_BRIDGE_API_KEYS    # comma-separated; omit to leave the bridge open
+
+# Where conversation state is kept. Lose it and every user starts over.
+#   memory://             in process, gone on restart
+#   sqlite:///data/x.db   a file; put it on a Docker volume
+#   mongodb://...         a server
+store: "sqlite:///data/context.db"
+
+# The NAME of an environment variable holding comma-separated API keys — not
+# the keys themselves. Callers must then send one as `Authorization: Bearer`.
+# Leave this out and the bridge answers anyone who can reach the port.
+api_keys_env: A2A_BRIDGE_API_KEYS
 
 agents:
-  # Minimal: everything else is discovered from the agent card.
+  # The minimum, in full.
   - id: example
     card_url: https://example.org/agents/helper/
 
-  # A fuller example, showing every knob.
+  # Every option, each with the reason you would set it.
   - id: publisher
     card_url: https://example.org/api/publisher/
 
-    # Some servers redirect /path -> /path/ with a 307, and most HTTP clients
-    # will not replay a POST body across a redirect. If the bridge logs a
-    # redirect error, set the exact form here, trailing slash included.
+    # Set this only if the card gives the wrong URL, or if the bridge reports a
+    # redirect error. Keep the trailing slash — a 307 drops the POST body.
     endpoint_url: https://example.org/api/publisher/
 
-    # Header carrying your chat client's conversation id. The bridge maps it to
-    # the agent's contextId so sessions survive across turns. In LibreChat:
-    #   headers:
-    #     X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
+    # Which header carries your chat client's conversation id. Without it the
+    # agent forgets the user between turns.
+    # LibreChat: X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
     conversation_id_header: X-Conversation-Id
 
-    # This turn's message id, from the client. Optional but nearly free: it is
-    # what later lets a rating, cost or audit note on a reply be traced back to
-    # the exact agent turn that produced it. Cannot be reconstructed afterwards.
-    #   LibreChat: "{{LIBRECHAT_BODY_MESSAGEID}}"
+    # Which header carries this turn's message id. The bridge only records it.
+    # It is what later ties a rating, a cost or an audit note back to the exact
+    # answer it belongs to. You cannot work it out afterwards.
+    # LibreChat: "{{LIBRECHAT_BODY_MESSAGEID}}"
     message_id_header: X-Message-Id
 
-    # "auto" uses the agent's streaming method when its card advertises one, so
-    # working-state notes reach the user while they wait. "blocking" never does.
+    # "auto" streams when the agent's card says it can, so the user sees
+    # progress rather than a blank pane. "blocking" waits and sends the whole
+    # answer at once. Streaming does not mean text arrives word by word; many
+    # agents still send their answer whole.
     stream_mode: auto
+
+    # Show the agent's progress notes — "Searching…", "Handing off to X…" — as
+    # they arrive. They stay in the saved message afterwards.
     show_progress: true
 
-    # Forward a stable per-user id so the agent can rate-limit per user instead
-    # of per IP — without this, every user of a server-side bridge looks like one
-    # caller. The HMAC makes the id unforgeable; the secret is env-only and must
-    # never reach a browser. In LibreChat the id comes from
-    # "{{LIBRECHAT_USER_ID}}".
+    # Send a per-user id upstream. An agent that limits by IP address sees every
+    # user of a shared bridge as one caller; this separates them. The signature
+    # proves the id came from you, so the secret must stay on the server and
+    # never reach a browser.
+    # LibreChat: the id comes from "{{LIBRECHAT_USER_ID}}".
     caller:
       id_header: X-Caller-Id
       auth_header: X-Caller-Auth
-      secret_env: EXAMPLE_SHARED_SECRET
+      secret_env: EXAMPLE_SHARED_SECRET   # again, the NAME of a variable
 
+    # Sent on every request to this agent.
     static_headers:
       X-Trace-Source: a2a-bridge
 
-    artifact_join: "\n\n"   # how multiple text artifacts are concatenated
-    on_error: message       # "message" renders failures in-chat; "http_error" propagates
+    # What goes between separate artifacts. Parts inside one artifact always
+    # join with nothing between them — they are pieces of one string.
+    artifact_join: "\n\n"
+
+    # "message" shows a failure as a reply in the chat, which is what a person
+    # wants. "http_error" returns a real HTTP error, which is what a program
+    # wants.
+    on_error: message
+
+    # Seconds to wait for the agent before giving up.
     timeout_s: 120

@@ -1,6 +1,10 @@
-"""a2a-bridge — connect any OpenAI-compatible chat client to any A2A agent."""
+"""a2a-bridge: connect an OpenAI-compatible chat client to an A2A agent."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
 
-from .config import AgentConfig, BridgeConfig, CallerAuth  # noqa: F401
-from .mapping import A2AProtocolError  # noqa: F401
+try:
+    __version__ = version("a2a-bridge")
+except PackageNotFoundError:  # running from a source tree that was never installed
+    __version__ = "0+unknown"
+
+__all__ = ["__version__"]
