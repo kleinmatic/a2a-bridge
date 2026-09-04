@@ -71,7 +71,10 @@ def require_api_key(authorization: str | None = Header(default=None)) -> None:
     if not keys:
         return
     token = (authorization or "").removeprefix("Bearer ").strip()
-    if token not in keys:
+    # An empty token is the absence of a credential, never a match. Config
+    # normalisation drops empty keys, but a request with no Authorization
+    # header must not authenticate even if one ever survives.
+    if not token or token not in keys:
         raise HTTPException(status_code=401, detail="invalid api key")
 
 
@@ -96,10 +99,13 @@ def _conversation_id(agent, request: Request, body: dict[str, Any]) -> str:
     """Find a stable key for this conversation.
 
     Preference order matters. A client-supplied conversation id is the only
-    option that survives the user editing an earlier message; deriving a key from
-    message content does not, and since contextId carries entitlement state, a
-    rotated key silently sends someone back through the gate. Falling back to a
-    hash is better than failing, but it is a fallback.
+    option that holds still across turns. Since contextId carries entitlement
+    state, a key that rotates sends the user back through the gate in silence.
+
+    The hash fallback is close to useless, and is here only so a misconfigured
+    client gets an answer instead of an error. It hashes the NEWEST user
+    message, which is different on every turn, so every turn opens a new
+    session. Configure conversation_id_header.
     """
     if agent.conversation_id_header:
         value = request.headers.get(agent.conversation_id_header)
@@ -114,8 +120,9 @@ def _conversation_id(agent, request: Request, body: dict[str, Any]) -> str:
 
     seed = last_user_text(body.get("messages") or [])
     log.warning(
-        "agent %s: no conversation id available; falling back to a content hash. "
-        "Editing the first message will start a new session.", agent.id,
+        "agent %s: no conversation id available; falling back to a hash of the "
+        "latest message. That changes every turn, so the agent will see each "
+        "turn as a new session. Set conversation_id_header.", agent.id,
     )
     return "sha256:" + hashlib.sha256(seed.encode()).hexdigest()[:32]
 

@@ -3,14 +3,14 @@
 # One block per agent. Each `id` becomes a model name your chat client can
 # pick. Adding an agent needs no code change.
 #
-# A complete, working file is two lines:
+# A complete, working file is three lines:
 #
 #   agents:
 #     - id: myagent
 #       card_url: https://agent.example.org/api/agent/
 #
 # Everything else is optional. The bridge reads the endpoint, the protocol
-# version and whether the agent can stream from the agent card itself.
+# version, and whether the agent can stream from the agent card itself.
 
 
 # Where conversation state is kept. Lose it and every user starts over.
@@ -19,10 +19,16 @@
 #   mongodb://...         a server
 store: "sqlite:///data/context.db"
 
-# The NAME of an environment variable holding comma-separated API keys — not
-# the keys themselves. Callers must then send one as `Authorization: Bearer`.
-# Leave this out and the bridge answers anyone who can reach the port.
+# The NAME of an environment variable that holds comma-separated API keys,
+# not the keys themselves. Callers must then send one as
+# `Authorization: Bearer`. Leave this out and the bridge answers anyone who
+# can reach the port.
 api_keys_env: A2A_BRIDGE_API_KEYS
+
+# You can also write the keys here instead. Prefer api_keys_env: a key in this
+# file is a secret in your repository. Blank entries are dropped, so a template
+# that rendered to nothing leaves the bridge open rather than half-guarded.
+# api_keys: ["a-key", "another-key"]
 
 agents:
   # The minimum, in full.
@@ -33,8 +39,9 @@ agents:
   - id: publisher
     card_url: https://example.org/api/publisher/
 
-    # Set this only if the card gives the wrong URL, or if the bridge reports a
-    # redirect error. Keep the trailing slash — a 307 drops the POST body.
+    # Set this only if the card gives the wrong URL, or if the bridge reports
+    # a redirect error. Keep the trailing slash: a redirected POST loses its
+    # body.
     endpoint_url: https://example.org/api/publisher/
 
     # Which header carries your chat client's conversation id. Without it the
@@ -43,37 +50,43 @@ agents:
     conversation_id_header: X-Conversation-Id
 
     # Which header carries this turn's message id. The bridge only records it.
-    # It is what later ties a rating, a cost or an audit note back to the exact
-    # answer it belongs to. You cannot work it out afterwards.
+    # It is what later ties a rating, a cost, or an audit note back to the
+    # exact answer it belongs to. You cannot work it out afterwards.
     # LibreChat: "{{LIBRECHAT_BODY_MESSAGEID}}"
     message_id_header: X-Message-Id
 
     # "auto" streams when the agent's card says it can, so the user sees
-    # progress rather than a blank pane. "blocking" waits and sends the whole
+    # progress instead of a blank pane. "blocking" waits and sends the whole
     # answer at once. Streaming does not mean text arrives word by word; many
     # agents still send their answer whole.
     stream_mode: auto
 
-    # Show the agent's progress notes — "Searching…", "Handing off to X…" — as
+    # What wraps each progress note. Markdown italics by default, so a note
+    # reads as separate from the answer. Set both to "" for plain text.
+    progress_prefix: "_"
+    progress_suffix: "_"
+
+    # Show the agent's progress notes ("Searching…", "Handing off to X…") as
     # they arrive. They stay in the saved message afterwards.
     show_progress: true
 
-    # Send a per-user id upstream. An agent that limits by IP address sees every
-    # user of a shared bridge as one caller; this separates them. The signature
-    # proves the id came from you, so the secret must stay on the server and
-    # never reach a browser.
+    # Send a per-user id upstream. An agent that limits by IP address sees
+    # every user of a shared bridge as one caller; this separates them. The
+    # signature proves the id came from you. The secret must stay on the
+    # server and never reach a browser.
     # LibreChat: the id comes from "{{LIBRECHAT_USER_ID}}".
     caller:
       id_header: X-Caller-Id
       auth_header: X-Caller-Auth
-      secret_env: EXAMPLE_SHARED_SECRET   # again, the NAME of a variable
+      secret_env: EXAMPLE_SHARED_SECRET
+      digest_bytes: 8                     # signature length; 8 bytes = 16 hex chars   # again, the NAME of a variable
 
     # Sent on every request to this agent.
     static_headers:
       X-Trace-Source: a2a-bridge
 
     # What goes between separate artifacts. Parts inside one artifact always
-    # join with nothing between them — they are pieces of one string.
+    # join with nothing between them: they are pieces of one string.
     artifact_join: "\n\n"
 
     # "message" shows a failure as a reply in the chat, which is what a person

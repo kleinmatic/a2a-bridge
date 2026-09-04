@@ -2,6 +2,14 @@
 FROM python:3.12-slim
 
 WORKDIR /app
+
+# The version normally comes from the git tag, and .git is deliberately not in
+# the build context. Without this the build would fail outright; pyproject's
+# fallback_version keeps it working, and passing VERSION stamps a real number:
+#   docker build --build-arg VERSION=0.2.0 -t a2a-bridge .
+ARG VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION}
+
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir .

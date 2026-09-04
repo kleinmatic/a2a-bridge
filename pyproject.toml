@@ -42,6 +42,17 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint.per-file-ignores]
+# TRY004 wants TypeError for a failed isinstance check. Here an isinstance
+# check means the YAML has the wrong shape, which is a config mistake, not a
+# programming error. Every problem in this module raises ValueError so that a
+# caller has exactly one exception type to catch.
+"src/a2a_bridge/config.py" = ["TRY004"]
+
 [tool.setuptools_scm]
+# Building without git metadata -- the Docker image copies src/ and
+# pyproject.toml but not .git -- would otherwise raise LookupError and fail
+# the build outright. A version is not worth failing a build over.
+fallback_version = "0+unknown"
 # Tag "v0.2.0" builds version 0.2.0. Building from an untagged commit yields a
 # .dev version, which PyPI rejects -- deliberately: only a tag ships.

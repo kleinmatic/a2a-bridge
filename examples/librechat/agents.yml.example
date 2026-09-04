@@ -8,22 +8,22 @@ api_keys_env: A2A_BRIDGE_API_KEYS
 
 agents:
   - id: myagent
-    # Your agent's card, or the endpoint itself. Note the trailing slash: many
-    # A2A servers 307-redirect the unslashed form and a POST body does not
+    # Your agent's card, or the endpoint itself. Keep the trailing slash: many
+    # A2A servers 307-redirect the unslashed form, and a POST body does not
     # survive the redirect.
     #
     # An agent running on your own machine (not in Docker) is reachable at
-    # host.docker.internal, NOT localhost — localhost inside the container is
-    # the container.
+    # host.docker.internal, NOT localhost. Inside the container, localhost is
+    # the container itself.
     card_url: http://host.docker.internal:8081/api/publisher/
 
     # Header names must match the ones set in librechat.yaml.
     conversation_id_header: X-Conversation-Id
     message_id_header: X-Message-Id
 
-    # "auto" uses the agent's streaming method when its card advertises one, so
-    # its working-state notes reach the user while they wait rather than leaving
-    # a blank pane. Streaming does not imply incremental text.
+    # "auto" uses the agent's streaming method when its card advertises one,
+    # so the user sees the agent's progress notes instead of a blank pane
+    # while they wait. Streaming does not mean the text arrives word by word.
     stream_mode: auto
     show_progress: true
 
