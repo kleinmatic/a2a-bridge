@@ -8,7 +8,7 @@ reusable rather than one integration with the serial numbers filed off.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import yaml
@@ -114,6 +114,60 @@ class AgentConfig:
             raise ValueError(f"{self.id}: stream_mode must be 'auto' or 'blocking'")
 
 
+
+_AGENT_FIELDS = {f.name for f in fields(AgentConfig)}
+_CALLER_FIELDS = {f.name for f in fields(CallerAuth)}
+
+
+def _agent_from(entry: dict, *, path: str | Path, index: int) -> AgentConfig:
+    """Build one AgentConfig, reporting mistakes in terms of the YAML file.
+
+    Passing the block straight to the dataclass gives a mistyped key a Python
+    TypeError about constructor arguments, which tells a reader nothing about
+    which file, which agent, or what to write instead. Config mistakes are the
+    normal case while setting this up, so they get real messages.
+    """
+    if not isinstance(entry, dict):
+        # A bad YAML shape is a config mistake, not a programming type error.
+        # Every config problem here raises ValueError, so a caller has one
+        # exception type to catch.
+        raise ValueError(  # noqa: TRY004
+            f"{path}: agents[{index}] should be a block of settings, not {entry!r}"
+        )
+
+    where = f"agents[{index}]"
+    if isinstance(entry.get("id"), str):
+        where = f"agent {entry['id']!r}"
+
+    # Copy: callers keep their parsed YAML, and re-loading stays repeatable.
+    entry = dict(entry)
+    caller_block = entry.pop("caller", None) or {}
+    if not isinstance(caller_block, dict):
+        raise ValueError(  # noqa: TRY004
+            f"{path}: {where}: 'caller' should be a block, not {caller_block!r}"
+        )
+
+    unknown = sorted(set(caller_block) - _CALLER_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"{path}: {where}: unknown option{'s' if len(unknown) > 1 else ''} under 'caller': "
+            f"{', '.join(unknown)}. Valid: {', '.join(sorted(_CALLER_FIELDS))}"
+        )
+
+    unknown = sorted(set(entry) - _AGENT_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"{path}: {where}: unknown option{'s' if len(unknown) > 1 else ''}: "
+            f"{', '.join(unknown)}. Valid: {', '.join(sorted(_AGENT_FIELDS))}"
+        )
+
+    for required in ("id", "card_url"):
+        if not entry.get(required):
+            raise ValueError(f"{path}: {where}: '{required}' is required")
+
+    return AgentConfig(caller=CallerAuth(**caller_block), **entry)
+
+
 @dataclass
 class BridgeConfig:
     agents: dict[str, AgentConfig]
@@ -125,10 +179,9 @@ class BridgeConfig:
     def load(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> BridgeConfig:
         raw = yaml.safe_load(Path(path).read_text()) or {}
         agents: dict[str, AgentConfig] = {}
-        for entry in raw.get("agents") or []:
-            caller = CallerAuth(**(entry.pop("caller", None) or {}))
-            agent = AgentConfig(caller=caller, **entry)
-            agents[agent.id] = agent
+        for i, entry in enumerate(raw.get("agents") or []):
+            agents_ = _agent_from(entry, path=path, index=i)
+            agents[agents_.id] = agents_
         if not agents:
             raise ValueError(f"{path}: no agents configured")
 
