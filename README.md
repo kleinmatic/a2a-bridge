@@ -1,6 +1,7 @@
 # a2a-bridge
 
 [![CI](https://github.com/kleinmatic/a2a-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/kleinmatic/a2a-bridge/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/a2a-bridge)](https://pypi.org/project/a2a-bridge/)
 
 **Connect LibreChat — or any OpenAI-compatible chat client — to any [A2A](https://a2a-protocol.org) agent.**
 
