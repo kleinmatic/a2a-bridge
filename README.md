@@ -1,5 +1,7 @@
 # a2a-bridge
 
+[![CI](https://github.com/kleinmatic/a2a-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/kleinmatic/a2a-bridge/actions/workflows/ci.yml)
+
 **Connect LibreChat — or any OpenAI-compatible chat client — to any [A2A](https://a2a-protocol.org) agent.**
 
 A2A agents speak JSON-RPC. Chat clients speak the OpenAI chat-completions API. This is the
