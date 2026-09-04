@@ -1,0 +1,52 @@
+name: Release
+
+# Publishes to PyPI when a GitHub Release is published. Uses PyPI Trusted
+# Publishing (OIDC): GitHub proves this workflow, in this repo, in the `pypi`
+# environment, is what it says it is — so there is no API token to mint,
+# store or rotate. The three names below (repo, workflow filename, environment)
+# must match the publisher configured on PyPI exactly.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e '.[dev,mongo]'
+      # A release is the worst place to discover a red test.
+      - run: pytest -q
+      - run: pip install build
+      - run: python -m build
+      - run: pip install twine && twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Named environment, so the OIDC claim is narrow and a protection rule can
+    # be added later without touching this file.
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      # Pinned. An unpinned publish action is a supply-chain hole in the one
+      # workflow that has permission to upload under our name.
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
